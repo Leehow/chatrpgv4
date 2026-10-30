@@ -6,6 +6,7 @@ import {TaskLease,type TaskClock} from '../../runtime/jev/task-context.ts';
 import {JEV_MODEL,packDecisionBatch} from '../../runtime/jev/question-packing.ts';
 import {locateCards,locatedSelection,LOCATE_ABSENT,LOCATE_FAMILY,LOCATE_FOUND,type LocateCard,type LocateJudgment,type LocateResult,type LocatedSelection} from '../../runtime/jev/semantic-locate.ts';
 import {bookPassages,passageSection,type BookPassage,type BookPassagesRead} from '../../runtime/jev/book-passages.ts';
+import {chapterResolverSet,currentChapter,inChapter,scopeSpans,type ChapterScope} from '../../runtime/chapter-scope.ts';
 import {preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
 import type {DecisionBatch,DecisionResult,Json,ReadSet} from '../../runtime/jev/contracts.ts';
 import {workspaceCandidates} from './workspace/projection.ts';
@@ -195,7 +196,7 @@ export function rankPool(pool:readonly PrescreenCandidate[],ranked:readonly Loca
  * content root the environment's `PI_COC_CONTENT_ROOT` (as `transcriptStoreFromEnv` finds it).
  */
 async function bookPassagesFor(input:KeeperSupportInput,env:NodeJS.ProcessEnv,snapshotWork:Promise<Row>|undefined,
-    signal:AbortSignal):Promise<{read?:BookPassagesRead;summary?:Row}> {
+    signal:AbortSignal):Promise<{read?:BookPassagesRead;chapter?:ChapterScope;summary?:Row}> {
     if(!input.source||!snapshotWork)return {};
     snapshotWork.catch(()=>undefined);
     const runtime=input.source.runtime,contentRoot=runtime.contentRoot??env.PI_COC_CONTENT_ROOT?.trim();
@@ -203,9 +204,16 @@ async function bookPassagesFor(input:KeeperSupportInput,env:NodeJS.ProcessEnv,sn
     try{
         const bound=await snapshotWork;
         if(typeof bound.pdf!=='string'||typeof bound.file_sha256!=='string'||!Number.isSafeInteger(bound.page_count))throw new Error('source_unavailable');
+        // §276.3: only the current chapter's passages are cards; a reading service that cannot say the chapter offers none.
+        const chapter=chapterResolverSet()?await currentChapter(input.campaign,input.source!.moduleId,signal):undefined;
+        if(chapterResolverSet()&&!chapter)return {summary:{status:'chapter_unavailable'}};
         const read=await bookPassages({source:runtime,roots:{home:runtime.home,contentRoot},signal,
             snapshot:{pdf:bound.pdf,file_sha256:bound.file_sha256,page_count:Number(bound.page_count)}});
-        return {read,summary:{status:read.status,cards:read.passages.length,pages:read.pages.length,read_pages:read.read_pages,index_ms:read.ms}};
+        const passages=chapter?read.passages.filter(passage=>inChapter(chapter,passage.page)):read.passages;
+        // The chapter enters the passages' identity, so a locate judged in one chapter is never reused in another.
+        const scoped=chapter?{...read,key:`${read.key}:${scopeSpans(chapter).map(own=>`${own.first}-${own.last}`).join(',')}`,passages,pages:read.pages.filter(page=>inChapter(chapter,page))}:read;
+        return {read:scoped,chapter,summary:{status:read.status,cards:passages.length,pages:scoped.pages.length,read_pages:read.read_pages,index_ms:read.ms,
+            ...(chapter?{chapter:chapter.name,chapter_pages:[chapter.first,chapter.last],outside_chapter:read.passages.length-passages.length}:{})}};
     }catch(error){return {summary:{status:'unavailable',reason:error instanceof Error?error.message.slice(0,160):'passages_unavailable'}};}
 }
 /** A unit preview without the entity stub every graph unit repeats; the label already names the entity. */
@@ -488,10 +496,14 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
             ||bound.turn!==input.binding.turn)throw new Error('binding_unavailable');
         let sourceResult:PrescreenSourceResult|undefined,sourceFailure:string|undefined,sourcePdf:string|undefined;
         if(input.source)try{
+            // §276.3: the source materials search and pick the current chapter's pages only.
+            const sourceChapter=chapterResolverSet()?await currentChapter(input.campaign,input.source.moduleId,semanticSignal):undefined;
+            if(chapterResolverSet()&&!sourceChapter)throw new Error('chapter_unavailable');
             const sourceSnapshot=object(await discoveryRpc('module.source.materials.snapshot',{module_id:input.source.moduleId,answer_limit:24,answer_cursor:0})) as PrescreenSourceSnapshot;
             sourcePdf=sourceSnapshot.pdf;
             sourceResult=await preparePrescreenSources({call:async(method,params)=>object(await input.call(method,{...params,campaign:input.campaign})),
                 campaign:input.campaign,moduleId:input.source.moduleId,scope,query,capsule:input.capsule,source:input.source.runtime,
+                ...(sourceChapter?{chapter:{spans:scopeSpans(sourceChapter).map(own=>({first:own.first,last:own.last}))}}:{}),
                 signal:semanticSignal,budget:{deadlineAt:semanticDeadlineAt,candidateBytes:Math.max(4096,availableBytes*2),materialBytes:availableBytes,maxNativePages:16},snapshot:sourceSnapshot,
                 located:locatedRows,
                 ...(passageSummary?{passages:(passageFile===sourceSnapshot.file_sha256?selection.passages:[]).flatMap(handle=>{const passage=passageByHandle.get(handle);

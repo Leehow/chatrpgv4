@@ -53955,7 +53955,86 @@ social approach is not clear from method" twice and re-sent as Persuade. A socia
 Fast Talk, Intimidate, Persuade or Psychology now routes to the ordinary check of that skill. Case:
 `tests/integration/social-named-skill.test.ts`.
 
-## 276. A carried writing surface is registered beside play (owner 2026-10-29; extends §129.7)
+## 276. Book reads keep to the current chapter (owner 2026-10-29; amends §266.3, §266.4, §196.7, §262.9)
+
+Owner rule: while the party is in a chapter, the Keeper's book is that chapter. What the current chapter does not hold is
+absent from the book for this table, and the Keeper fills it in plausibly; nobody pages through other chapters for it.
+Played memory outranks the book: where the table's established facts and the book disagree, the table wins, or the
+Keeper fuses the two into one account. 1029p: 27 of 68 book reads of the two prefetch arms returned pages outside the
+chapter the party was in, and no read ever told the Keeper "this chapter has nothing on it".
+
+### 276.1 The book's chapters
+
+A book's chapters are, in order of preference:
+
+1. its PDF top-level bookmarks (§182.1, `outlineChapters`), when they give at least two chapters;
+2. otherwise its *heading chapters*: the source worker's `sourceInfo` adds `headings` for a book without two paged
+   top-level bookmarks. Typography only: every text item's font height (rounded to 0.5), lines grouped by page and
+   baseline (items more than two heights apart on one baseline are separate lines), the body height is the height
+   carrying the most characters; a heading line is at most 40 characters at
+   1.25 times the body height or more. The chapter tier is the largest heading height whose lines stand on at least two
+   different pages; its lines are `{name, page}` entries, read with `outlineChapters` (same-page entries collapse to the
+   last). Nothing reads what a heading says. (An Amaranthine Desire: this tier gives exactly its bookmarks. Dust to Dust:
+   seven chapters, p2, 4, 5, 7, 15, 18, 21. Digging for a Dead God: three parts, p2, 7, 13.)
+3. otherwise none: the book is one chapter, `{name: "whole book", first: 1, last: page_count}`, and receipts say so.
+
+Pages before the first chapter are the front matter, a chapter of their own.
+
+### 276.2 The current chapter
+
+The host resolves it at each book read from the party's scene: the scene's book pages (`table.lookup kind=module` of the
+capsule's `where.scene`, its `original_pages`), anchored by `anchorPage` (§182.3), name the chapter that holds the anchor.
+Under lean reading the graph holds few places, so a scene the graph has no pages for is looked up in the pointer index by
+the names it is shown by (`where.display_name` and `where.scene`, `answerPages`: spelling only). A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
+it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's pages decide; with no opening pages either,
+the first chapter. The chapter changes only when the party is in a book scene of another chapter. Telemetry:
+`lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `kept`, `opening`, `first`) and the
+chapter source (`bookmarks`, `headings`, `none`).
+
+### 276.3 Every read is cut to it
+
+- **answer** (`leanAnswer`, so also the `PI_COC_KP_PREFETCH` prefetch that uses it): the focus's graph pages, the
+  pointer index pages and the text search (`sourceSearch` with `first_page`/`last_page` of the chapter) keep only
+  chapter pages.
+- **pages**: requested pages and a contents section are cut to the chapter; the contents lists only the chapter's rows.
+- **held, memo and continued answers** (`answer_part`, carried views, `read_next`): excerpts and refs outside the current
+  chapter are dropped where the answer is handed to the Keeper; an answer left with nothing becomes the receipt below.
+- **Jev locate** (§196.7): only passages on chapter pages are cards; **source materials** of the prescreen search and pick
+  pages inside the chapter only. A missing chapter scope is not "the whole book": the provider reports
+  `chapter_unavailable` and offers no book passages.
+
+### 276.4 The receipt
+
+A read that finds nothing in the chapter, or whose pages all fall outside it, answers
+
+`{status: "chapter_absent", chapter: {name, first, last, source}, checked: [...], answer, note}`
+
+with the answer "The current chapter (name, pages a-b) has nothing on <focus>." followed by the one book-absence line every
+book receipt carries (`shared/book-absence.ts`: do not search other parts of the book; play on from table memory and
+improvise; memory outranks the book). `checked` names what was
+looked at (`graph`, `index`, `text_search`, `pages`). No contents, no `read_next`, no `coverage.partial`. A technical
+failure is still reported as itself, never as `chapter_absent`.
+
+Every answer that does carry pages adds `chapter` and the note "These pages are the current chapter's" with the same
+book-absence line.
+
+### 276.5 Resident chapters (owner 2026-10-30)
+
+The book's reference chapters are read from any chapter: background, the Keeper's information or overview, the cast of
+characters and their statistics. Which chapters these are is a question of what they are about, so Jev answers it once per
+document (family `resident-chapters` v1): one Noul per chapter from its heading, its pages and the first 400 characters
+printed on its first page; at 0.5 or more the chapter is resident. The answer is kept by file hash in
+`<home>/.coc/chapter-scope/resident-<sha>.json`; an ask Jev could not answer keeps nothing resident and is asked again in the
+next session. A book with no chapters has none. Telemetry: `lane: reading, event: resident_chapters` with each chapter's Noul.
+
+Every cut of §276.3 reads the current chapter and the resident chapters (`chapter.resident` on the answer). The text search
+searches one span as itself and several over their hull, cutting the hits; the contents list the rows of every span; the
+receipt names both ("The current chapter (...) and the book's reference chapters (...) have nothing on ..."). 1029p books, two
+asks each: Dust to Dust: Keeper information, town and residents, character statistics; An Amaranthine Desire: background,
+protagonists, appendix B (character information); Digging for a Dead God: none (its three parts are 0.29-0.39).
+
+
+## 277. A carried writing surface is registered beside play (owner 2026-10-29; extends §129.7)
 
 Live 1029z, 挖掘死去之神 mm-ready: the sheet listed a notebook and pencil, the player drew the stones on four turns, and
 the Keeper wrote no page on any of them. On the fourth it named the reason: registering the notebook first was too heavy,

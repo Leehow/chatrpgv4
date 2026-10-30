@@ -164,7 +164,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
     const work = (async()=>{
       await new Promise<void>(resolve=>setImmediate(resolve));
       if (stopped || signal.aborted || current !== call || owner !== runtime) return;
-      // §276: which plain carried rows are writing surfaces, asked once per row before the rows are prepared.
+      // §277: which plain carried rows are writing surfaces, asked once per row before the rows are prepared.
       await judgeSurfaces(campaign,current,signal);
       if (stopped || signal.aborted || current !== call || owner !== runtime) return;
       const prepared = await current('mods.equipment.prepare',{campaign});

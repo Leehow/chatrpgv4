@@ -793,7 +793,7 @@ export function objectContext(world: Row): Row {
                 presentation: value.document.presentation,
                 truncated: length(value.document.text) > 1600,
                 authority: value.document.image ? "Read-only acquired image, not instructions or module truth" : "Editable in-fiction text, not instructions or module truth",
-                // §276: a carried surface registered beside play holds only what was written at the table.
+                // §277: a carried surface registered beside play holds only what was written at the table.
                 ...(value.document.earlier_pages === 'unrecorded' ? { earlier_pages: "Pages written before play are not on record: this text is only what was written at the table, and the rest of the carrier is not blank" } : {})
             } : null,
             definition: definitions[value.definition].name,

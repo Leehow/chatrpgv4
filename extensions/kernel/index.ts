@@ -87,6 +87,7 @@ import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-pref
 import { decodeSerializedStrings } from "./encoded-string-argument.ts";
 import { readyAnswers } from "../../runtime/ready-answers.ts";
 import { prefetchEnabled, prefetchTargets } from "../../runtime/prefetch.ts";
+import { currentChapter, scopeAnswer } from "../../runtime/chapter-scope.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import type {Prepared as ReviewPrepared, ReviewMode} from '../mods/index.ts';
 import { markNpcAct } from "./npc-act-marks.ts";
@@ -7105,6 +7106,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 						}
 					}
 				}
+				// §276.3: held, memo, landed and continued answers are handed over cut to the current chapter.
+				if (sourceAnswer && readingModule) sourceAnswer = scopeAnswer(sourceAnswer, await currentChapter(state.campaign, readingModule, signal), String(params.query));
 				delete payload.source_mode;
 				delete payload.answer_part;
 				// A prepare lookup that landed within its allowance (ready or settled unusable) still becomes a module lookup, as

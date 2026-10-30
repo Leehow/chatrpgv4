@@ -75,7 +75,7 @@ function sectionOf(material:Row):typeof SUPPORT_SECTIONS[number] {
  */
 export const MISSING_NOTE=' missing lists parts of this turn\'s request that nothing supplied here or in the capsule holds: each row is the player\'s '
     +'own words for that part, what it is about, and the read that may answer it. Make that one read before you narrate the part; what it '
-    +'does not find is not there. '+BOOK_ABSENCE_RULE;
+    +'does not find is not there, and a read that answers chapter_absent is that answer. '+BOOK_ABSENCE_RULE;
 
 /** Build before every budget trial so required schema fields are never appended after packing. */
 export function keeperSupportView(value:Row):KeeperSupport {

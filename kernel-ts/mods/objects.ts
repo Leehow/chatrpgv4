@@ -20,7 +20,7 @@ export function defineObject(world: Row, draft: Row, provenance: Row): Row {
     const value = validateDefinition(draft), definitions = objectRegistry(world).definitions, digest = jsonDigest(value), prior = findNamedObject(definitions, value.name);
     if (prior?.placeholder === true) return completePlaceholder(world, prior, value, digest, provenance);
     if (prior) {
-        // §276: carried equipment the host registered keeps its definition; the Keeper's same-named define is that claim.
+        // §277: carried equipment the host registered keeps its definition; the Keeper's same-named define is that claim.
         if (prior.digest !== digest && prior.category === value.category && registeredEquipmentDefinition(world, prior)) return prior;
         if (prior.digest !== digest) throw new RpcError('invalid_params', 'An established definition cannot be regenerated with different parameters',
             {fix: `${repr(value.name)} is already defined as ${string(prior.category)}: keep it as it is, or define the different thing under its own name. To make something already in hand strike, apply usage with its object name, the chosen usage name and a description of the actual attack`,
@@ -30,7 +30,7 @@ export function defineObject(world: Row, draft: Row, provenance: Row): Row {
     const id = `definition-${asciiSlug(value.name) || 'object'}-${Object.keys(definitions).length + 1}`;
     const definition = {...value, id, version: 1, digest, provenance: clone(provenance)}; definitions[id] = definition; return definition;
 }
-/** §276: some instance of this definition is carried equipment the host registered (`EquipmentJobs.publish`). */
+/** §277: some instance of this definition is carried equipment the host registered (`EquipmentJobs.publish`). */
 export function registeredEquipmentDefinition(world: Row, definition: Row): boolean {
     return values(row(objectRegistry(world).instances)).some(item => item.definition === definition.id && truth(item.equipment_actor));
 }

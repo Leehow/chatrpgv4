@@ -1,4 +1,4 @@
-/** Contract §276: whether each plain row of an investigator's carried equipment is something they can write or draw in, and in
+/** Contract §277: whether each plain row of an investigator's carried equipment is something they can write or draw in, and in
  *  what form. 1029z (Dunwich, mm-ready): the sheet listed a notebook and pencil, the player drew the stones on four turns, and the
  *  Keeper wrote no page on any of them -- registering the notebook first was the step it found too heavy and kept skipping. One
  *  Choice per row, from the row as the sheet records it; the answer is kept beside the equipment jobs, so each row is asked once.

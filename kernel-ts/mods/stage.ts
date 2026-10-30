@@ -51,7 +51,7 @@ export function ownerIn(party: readonly Row[], graph: ModuleGraph, world: Row, n
          details: {field:'object.owner', investigators:party.map(sheet=>sheet.name)}}); }
 }
 /**
- * §276: the instance an adoption names when it already exists in this investigator's hands -- the exact instance name, or
+ * §277: the instance an adoption names when it already exists in this investigator's hands -- the exact instance name, or
  * the sheet row the host registered beside play. Handles only, never a reading of the name.
  */
 function claimedInstance(world: Row, owner: Row, adopt: string, prior: Row | null): Row | null {
@@ -133,7 +133,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 unregisteredGiver.push({field: 'from', reason: 'unregistered_giver', giver: string(effect.from)});
             }
         }
-        // §276: an adoption of carried equipment that already has its instance in this investigator's hands is that claim.
+        // §277: an adoption of carried equipment that already has its instance in this investigator's hands is that claim.
         if (Object.hasOwn(effect, 'adopt') && owner.kind === 'investigator' && typeof effect.adopt === 'string' && effect.adopt.trim()) {
             const claimed = claimedInstance(world, owner, effect.adopt, prior);
             if (claimed) {
@@ -156,7 +156,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 effect = claim; prior = claimed; source = owner;
             }
         }
-        // §276: writing in a carrier its `to` already holds directly; the holder is the only `from` there is (as §227.4 for reading).
+        // §277: writing in a carrier its `to` already holds directly; the holder is the only `from` there is (as §227.4 for reading).
         if (prior && !source && ['write', 'append'].includes(row(effect.document).action)
             && row(prior.owner).kind === owner.kind && row(prior.owner).id === owner.id) source = owner;
         let adopted: any = null;
@@ -224,7 +224,7 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         }
         if (!prior && !Object.hasOwn(effect, 'adopt') && owner.kind === 'investigator') {
             const sheet = sheets ? await stagedSheet(context, sheets, owner.name) : selectActor(await campaign.party() as Row[], owner.name);
-            // §276: writing in a carried row nobody has judged yet (the host's question failed or has no Jev): the Keeper's
+            // §277: writing in a carried row nobody has judged yet (the host's question failed or has no Jev): the Keeper's
             // writing in it is the evidence, so it is registered beside play from now on; this turn takes the one-batch route.
             const carried = ['write','append'].includes(row(effect.document).action) ? array(sheet.equipment).find(item => typeof item === 'string'
                 ? item === name : isJsonObject(item) && !truth(item.object_id) && item.name === name) : undefined;

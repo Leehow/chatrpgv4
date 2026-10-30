@@ -84,7 +84,7 @@ export class EquipmentJobs {
                 while (reserved.has(normalize(name))) name = `${base} (${suffix++})`;
                 reserved.add(normalize(name));
                 const carried = `Already carried equipment: ${typeof candidate.row === 'string' ? candidate.row : JSON.stringify(candidate.row)}`;
-                // §276: the host's question found a writing surface; its earlier pages are not established, so it starts empty.
+                // §277: the host's question found a writing surface; its earlier pages are not established, so it starts empty.
                 const input = {name,category:'item',description:surface ? `${carried}. A writable carrier (presentation ${surface}): include document with that presentation. `
                     + 'Its earlier pages are not established, so its text starts empty and later writing is appended.' : carried};
                 const job = await this.jobs.job({campaign:campaign.id,role:'create',input,_equipment:binding});
@@ -100,7 +100,7 @@ export class EquipmentJobs {
     }
 
     /**
-     * §276: plain carried rows no surface verdict covers yet, for the host's Jev question. Rows with supplied capabilities
+     * §277: plain carried rows no surface verdict covers yet, for the host's Jev question. Rows with supplied capabilities
      * are prepared anyway, and their creator judges writability itself.
      */
     async surfaces(params: Row): Promise<Row> {
@@ -116,7 +116,7 @@ export class EquipmentJobs {
         return {version:SURFACE_VERSION,rows:rows.slice(0,40)};
     }
 
-    /** §276: verdicts for rows `surfaces` lists now; anything else, or an unknown answer, is not kept. */
+    /** §277: verdicts for rows `surfaces` lists now; anything else, or an unknown answer, is not kept. */
     async submitSurfaces(params: Row): Promise<Row> {
         if (params.version !== SURFACE_VERSION) return {written:0,status:'stale'};
         const campaign = await this.writer.campaign(params), listed = new Map(array((await this.surfaces(params)).rows).map(value => [value.id,value])),
@@ -174,7 +174,7 @@ export class EquipmentJobs {
             callId = `equipment-${entry.job}`, apply: ApplyContext = {kernel:this.jobs.context,transaction,campaign,world,turn,
                 graph:module.graph,module,callId,ordinal:0,mint:base=>`${base}:${entry.job}`,
                 settlement:async()=>{throw new RpcError('invalid_params','Equipment preparation cannot settle an action');}};
-        // §276: a definition the Keeper already gave this name stands; the carried row adopts it rather than regenerating it.
+        // §277: a definition the Keeper already gave this name stands; the carried row adopts it rather than regenerating it.
         const standing = findNamedObject(row(objectRegistry(world).definitions),entry.input.name);
         const defined = standing && standing.placeholder !== true && standing.category === 'item' ? null
             : await stageModEffect(apply,{kind:'define',name:entry.input.name,category:'item',_definition:accepted.definition,_provenance:accepted.provenance},sheets,this.jobs);

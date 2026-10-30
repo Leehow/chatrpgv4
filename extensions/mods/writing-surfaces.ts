@@ -1,5 +1,5 @@
 /**
- * Contract §276: the host's Jev question over plain carried rows, run just before the background equipment preparation.
+ * Contract §277: the host's Jev question over plain carried rows, run just before the background equipment preparation.
  * `mods.equipment.surfaces` lists the rows no verdict covers yet; Jev answers one Choice per row
  * (`runtime/jev/writing-surfaces.ts`); every answered row goes back through `mods.equipment.surfaces.submit`, and the kernel
  * keeps it, so a row is asked once. Jev unconfigured or failed submits nothing: those rows are not registered, and the

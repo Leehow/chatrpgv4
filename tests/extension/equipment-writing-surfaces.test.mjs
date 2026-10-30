@@ -1,4 +1,4 @@
-/** Contract §276: a carried row the host's question found to be a writing surface is registered beside play with empty pages. */
+/** Contract §277: a carried row the host's question found to be a writing surface is registered beside play with empty pages. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {join} from 'node:path';

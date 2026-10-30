@@ -84,8 +84,8 @@ export const contentsLines = (contents: ContentsRow[], limit: number): string[] 
 	contents.slice(0, limit).map(row => `p${row.first}${row.last > row.first ? `-${row.last}` : ""} ${row.name}`);
 
 /** §266.5: what the Keeper is told while the index does not cover the whole book. */
-export const BOOK_PAGES_NOTE = "The book's index does not cover the whole book yet: what this section lists is all it has for now. For this part of the "
-	+ "book that the index does not reach yet, turn its pages with lookup kind=source source_mode=pages and pages (physical page numbers, at most 3) "
+export const BOOK_PAGES_NOTE = "The book's index does not cover the whole book yet: what this section lists is all it has for now. For the current "
+	+ "chapter's pages the index does not reach yet, turn them with lookup kind=source source_mode=pages and pages (physical page numbers, at most 3) "
 	+ "or section (a contents name). The pages are the book's own text, Keeper-only, and may hold secrets. " + BOOK_ABSENCE_RULE;
 
 /** §266.6: what the Keeper is told beside a landing's pages in page mode. */

@@ -85,7 +85,7 @@ test('one Keeper writes the chosen suffix without append binding and the kernel 
   const originalFetch=globalThis.fetch;
   let decisionRequests=0;
   globalThis.fetch=async (url,init)=>{
-    // §248.7: the input's package topic judgement is not a writing decision; nor is §276's background carried-gear question.
+    // §248.7: the input's package topic judgement is not a writing decision; nor is §277's background carried-gear question.
     if(String(url).startsWith('https://api.typesafe.ai/')&&!String(init?.body).includes('"purpose":"the topics this turn involves"')
       &&!String(init?.body).includes('"purpose":"whether each carried row is something'))decisionRequests++;
     throw new Error('This deterministic writing seam must make no decision request');

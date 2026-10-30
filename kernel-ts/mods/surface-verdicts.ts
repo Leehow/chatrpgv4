@@ -1,5 +1,5 @@
 /**
- * Contract §276: whether a plain carried row is a writing surface, kept beside the equipment jobs so each row is asked once.
+ * Contract §277: whether a plain carried row is a writing surface, kept beside the equipment jobs so each row is asked once.
  * The host's Jev question writes these; so does the Keeper's own attempt to write in a row nobody has judged yet.
  */
 import {jsonDigest} from '../json.js';

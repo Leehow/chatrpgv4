@@ -7,6 +7,7 @@ import { getDocument, version } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createCanvas, loadImage, type Canvas, type SKRSContext2D } from "@napi-rs/canvas";
 import { nativeLines } from "./page-transcript.ts";
 import { layoutBlocks, SOURCE_LAYOUT_VERSION, type SourceBlocksPage } from "./source-blocks.ts";
+import { headingEntries, type HeadingEntry, type HeadingItem } from "./heading-chapters.ts";
 import type { TranscriptReader } from "./transcript-store.ts";
 
 const require = createRequire(import.meta.url);
@@ -282,6 +283,18 @@ export async function sourceLines(pdf: string, options: SourceTextOptions, signa
 		errors: native.errors };
 }
 
+/** §276.1: the heading entries of a whole document, from its text items' heights and baselines. */
+async function documentHeadings(document: Awaited<ReturnType<typeof openPdf>>["document"]): Promise<HeadingEntry[]> {
+	const pages: Array<{ page: number; items: HeadingItem[] }> = [];
+	for (let page = 1; page <= document.numPages; page++) {
+		const content = await (await document.getPage(page)).getTextContent();
+		pages.push({ page, items: content.items.flatMap(item => "str" in item
+			? [{ text: item.str, baseline: item.transform[5], x: item.transform[4], width: item.width,
+				height: Math.hypot(item.transform[2], item.transform[3]) }] : []) });
+	}
+	return headingEntries(pages);
+}
+
 export async function sourceInfo(pdf: string) {
 	const { document, sha256, close } = await openPdf(pdf);
 	try {
@@ -297,8 +310,12 @@ export async function sourceInfo(pdf: string) {
 				return { name: row.title, ...(page ? { page } : {}), children: await entries(row.items) };
 			}));
 		}
+		const bookmarks = await entries(outline);
+		// §276.1: a book without two paged top-level bookmarks gets its typographic headings, the chapters it has instead.
+		const paged = bookmarks.filter(row => typeof (row as { page?: unknown }).page === "number").length;
+		const headings = paged >= 2 ? undefined : await documentHeadings(document);
 		return { path: resolve(pdf), file_sha256: sha256, page_count: document.numPages,
-			labels: await document.getPageLabels(), bookmarks: await entries(outline) };
+			labels: await document.getPageLabels(), bookmarks, ...(headings ? { headings } : {}) };
 	} finally { await close(); }
 }
 

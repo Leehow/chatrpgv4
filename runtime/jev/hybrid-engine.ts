@@ -36,6 +36,7 @@ import { issuedSection, type CandidateBodies } from './candidate-bodies.ts';
 import { IMPROVISATION_GUIDANCE, CARRIED_VIEW_BYTES, fitView, scenePassages, type PassageSource } from './carried-views.ts';
 import { DEFAULT_TURN_BUDGET_MS, ROUTE_FAMILY, type BindRecord, type Candidate, type TurnContext } from './step-policy.ts';
 import { prefetchEnabled, PREFETCH_WAIT_MS } from '../prefetch.ts';
+import { currentChapter, scopeAnswer } from '../chapter-scope.ts';
 
 type Row = Record<string, any>;
 const object = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
@@ -604,10 +605,12 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
           try{if(consultations&&(!consultations.campaign||consultations.campaign===bridge.campaign))
             taken=consultations.take({scene:object(capsule.where).scene,run:context.runId,scope:{worldline:scope.worldline,loop:scope.loop}});
           }catch(error){record({lane:'run',event:'source_context_unavailable',run:context.runId,reason:String(error)});}
+          // §276.3: landed and held answers ride cut to the chapter the party is in now.
+          const chapter=taken&&(taken.landed.length||taken.held?.length)?await currentChapter(bridge.campaign):undefined;
           const carriedWork=taken?readCarriedViews({call:(method,params)=>bridge!.call!(method,{...params,campaign:bridge!.campaign,_context_read:true}),people:[],
-            answers:taken.landed.map(entry=>({name:entry.focus,view:entry.answer?withSourceQuestion(entry.question,entry.answer):{status:'unavailable',reason:entry.unavailable},...(entry.cached?{cached:true}:{}),...(entry.prefetch?{prefetch:true}:{})})),
+            answers:taken.landed.map(entry=>({name:entry.focus,view:entry.answer?withSourceQuestion(entry.question,scopeAnswer(entry.answer,chapter,entry.focus)):{status:'unavailable',reason:entry.unavailable},...(entry.cached?{cached:true}:{}),...(entry.prefetch?{prefetch:true}:{})})),
             // A held answer the host still retains continues from its next page; without `cached` it was cut to one page with no read_next.
-            held:(taken.held??[]).map(entry=>({name:entry.focus,view:withSourceQuestion(entry.question,entry.answer),...(entry.cached?{cached:true}:{})})),
+            held:(taken.held??[]).map(entry=>({name:entry.focus,view:withSourceQuestion(entry.question,scopeAnswer(entry.answer,chapter,entry.focus)),...(entry.cached?{cached:true}:{})})),
             pending:taken.pending,sceneTexts:taken.texts,
             sceneRecords:(taken.records??[]).map(entry=>({...entry,view:{status:entry.unavailable?'unavailable':'landed',note:'Use the named scene or person view for its full current record.'}}))}):undefined;
           const [people,carried]=await Promise.all([peopleWork,carriedWork]);

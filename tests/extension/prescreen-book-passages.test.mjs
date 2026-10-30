@@ -33,6 +33,7 @@ before(async()=>{
     "export {readSourcePageText} from './extensions/module/source-page-text.ts';",
     "export {preparePrescreenSources} from './runtime/jev/prescreen-source-provider.ts';",
     "export {bookPassages} from './runtime/jev/book-passages.ts';",
+    "export {setChapterResolver} from './runtime/chapter-scope.ts';",
   ].join('\n'),resolveDir:ROOT,sourcefile:'prescreen-book-passages-entry.ts'},outfile:join(bundle,'api.mjs'),bundle:true,
     packages:'external',platform:'node',format:'esm',logLevel:'silent'});
   api=await import(pathToFileURL(join(bundle,'api.mjs')).href);
@@ -158,6 +159,27 @@ test('§196.7 a passage the locate found reaches the Keeper with its section and
   // Without a transcript store the same preparation never supplies it: the rotation's first units take the budget.
   const blind=await prepare(t,f,{entity:{'Silas Crane':0.9},passage:card=>ledgerPassage(card)?0.9:0},{store:false});
   assert.deepEqual(facts(blind.packet),[]);assert.equal(blind.prepared.locate.passages.status,'no_store');
+});
+
+test('§276.3 the locate judges the current chapter\'s passages only, and the source search and pages keep to it',async t=>{
+  const f=await fixture(t),passageRequests=[],searched=[];
+  const resolver=async()=>({name:'Wards 5-12',first:5,last:12,source:'headings',resolved:'scene'});
+  api.setChapterResolver(resolver);t.after(()=>api.setChapterResolver(undefined,resolver));
+  const search=f.source.sourceSearch;f.source.sourceSearch=async(request,signal)=>{searched.push([request.first_page,request.last_page]);return search(request,signal);};
+  t.after(()=>{f.source.sourceSearch=search;});
+  const result=await prepare(t,f,{entity:{'Silas Crane':0.9},passage:card=>ledgerPassage(card)?0.9:0,passageRequests});
+  const cards=passageRequests.flatMap(sent=>sent.state.cards);
+  assert(cards.length>0&&!cards.some(card=>card.text===LEDGER.join('\n')),'page 17 is another chapter');
+  assert(cards.some(card=>card.text===KEY.join('\n')),'page 12 is this chapter');
+  assert.deepEqual(facts(result.packet),[],'the ledger is not in this chapter and is not supplied');
+  assert.equal(result.prepared.locate.passages.chapter,'Wards 5-12');
+  assert(result.catalog.coverage.native.materialized_pages.every(page=>page>=5&&page<=12),JSON.stringify(result.catalog.coverage.native.materialized_pages));
+  assert(searched.length&&searched.every(([first,last])=>first===5&&last===12));
+  // A reading service that cannot name the chapter offers no passages at all, never the whole book.
+  const none=async()=>undefined;api.setChapterResolver(none);
+  const blind=await prepare(t,f,{entity:{'Silas Crane':0.9},passage:card=>ledgerPassage(card)?0.9:0});
+  api.setChapterResolver(undefined,none);api.setChapterResolver(resolver);
+  assert.equal(blind.prepared.locate.passages.status,'chapter_unavailable');
 });
 
 test('§196.7 located passages enter Jev\'s window at their locate rank among the located entity\'s candidates',async t=>{

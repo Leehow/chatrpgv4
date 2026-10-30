@@ -1,4 +1,4 @@
-/** Contract §276: the host asks Jev once per carried row and keeps what it answered; a failed question registers nothing. */
+/** Contract §277: the host asks Jev once per carried row and keeps what it answered; a failed question registers nothing. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createWritingSurfaceJudge} from '../../extensions/mods/writing-surfaces.ts';

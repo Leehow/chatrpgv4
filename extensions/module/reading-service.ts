@@ -35,6 +35,7 @@ import {SKELETON_VERSION} from './lean-skeleton.ts';
 import {cardBlocks, checkedCard} from './mechanics-card.ts';
 import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
 import {singleCall, normalName, titleOnlyFocus} from './lean-skeleton.ts';
+import {anchorPage, bookChapters, CHAPTER_NOTE, chapterAbsent, chapterHolding, chapterView, inChapter, noteChapterModule, scopeSpans, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
 import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
@@ -49,6 +50,7 @@ import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
 import {readingImageBudget, readingReviewBudget, windowPlacesBudget, type WindowPlacesBudget} from '../../runtime/jev/host-budgets.ts';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
+import {askResidentChapters, RESIDENT_AT, RESIDENT_OPENING, RESIDENT_VERSION} from '../../runtime/jev/resident-chapters.ts';
 import {runWindowPlaces, WINDOW_PLACES_FAMILY} from '../../runtime/jev/window-places.ts';
 /**
  * `allowanceMs` (contract §22.4.3, SL-36): the foreground allowance of an in-turn source consultation. Past it `ensure`
@@ -462,6 +464,8 @@ export class ReadingService implements ReadingBridge {
 			this.note({ lane: "reading", event: "deadline_stop", deadline_ms: deadline, running: this.controllers.size });
 			this.dispose({ handOff: true });
 		}, deadline).unref();
+		// §276.2: the other readers of the book in this process (the prescreen's locate and source materials) ask this service.
+		setChapterResolver(this.chapterResolver);
 		// §263.8: a table nobody plays stops background reading; the next activity resumes it.
 		const idleMs = this.idleMs();
 		if (idleMs > 0) this.idleTimer = setInterval(() => this.checkIdle(), Math.max(1000, Math.min(60000, Math.floor(idleMs / 4)))).unref?.() ?? null;
@@ -560,6 +564,105 @@ export class ReadingService implements ReadingBridge {
 		this.contentsReady.set(source.file_sha256, lined);
 		return lined;
 	}
+	/** §276.1: the chapters of the documents this host read, by file hash. */
+	private chapterBooks = new Map<string, Promise<{ source: ChapterSource; chapters: Chapter[] }>>();
+	/** §276.2: the chapter last resolved per campaign and module, as `{name, first, last}`. */
+	private keptChapters = new Map<string, Chapter>();
+	private chapterFile(campaign: string): string { return join(this.deps.home, ".coc", "chapter-scope", `${createHash("sha256").update(campaign).digest("hex").slice(0, 32)}.json`); }
+	private async keptChapter(campaign: string, mid: string): Promise<Chapter | undefined> {
+		const key = JSON.stringify([campaign, mid]);
+		if (this.keptChapters.has(key)) return this.keptChapters.get(key);
+		try { const kept = JSON.parse(await readFile(this.chapterFile(campaign), "utf8"))?.[mid];
+			if (kept && typeof kept.name === "string" && Number.isSafeInteger(kept.first) && Number.isSafeInteger(kept.last)) {
+				this.keptChapters.set(key, kept); return kept; } }
+		catch { /* none kept yet */ }
+		return undefined;
+	}
+	private async keepChapter(campaign: string, mid: string, chapter: Chapter): Promise<void> {
+		this.keptChapters.set(JSON.stringify([campaign, mid]), chapter);
+		const file = this.chapterFile(campaign);
+		let all: Row = {};
+		try { all = JSON.parse(await readFile(file, "utf8")) ?? {}; } catch { /* first */ }
+		all[mid] = { name: chapter.name, first: chapter.first, last: chapter.last, campaign };
+		await mkdir(dirname(file), { recursive: true });
+		await writeFile(file, JSON.stringify(all) + "\n");
+	}
+	/** The book pages the graph holds for a name (the scene the party is at, the opening scene); spelling and identity only. */
+	private async graphPages(campaign: string, query: string): Promise<number[]> {
+		if (!query.trim()) return [];
+		const found = await this.call("table.lookup", { kind: "module", query, _context_read: true }, campaign);
+		const entity = (found?.entities ?? []).find((row: Row) => [row.name, row.display_name, row.id, row.handle].some(name => typeof name === "string" && normalName(name) === normalName(query)));
+		return (entity?.original_pages ?? []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1).map(Number);
+	}
+	/** §276.5: the book's resident chapters by file hash; an unanswered ask is not kept and is asked again next session. */
+	private residents = new Map<string, Promise<Chapter[]>>();
+	private residentChapters(mid: string, snapshot: Row, book: { source: ChapterSource; chapters: Chapter[] }, signal?: AbortSignal): Promise<Chapter[]> {
+		const sha = String(snapshot.file_sha256);
+		if (book.source === "none" || book.chapters.length < 2) return Promise.resolve([]);
+		if (!this.residents.has(sha)) this.residents.set(sha, (async () => {
+			const file = join(this.deps.home, ".coc", "chapter-scope", `resident-${sha}.json`);
+			try { const kept = JSON.parse(await readFile(file, "utf8"));
+				if (kept?.version === RESIDENT_VERSION && Array.isArray(kept.resident)) return kept.resident as Chapter[]; } catch { /* not asked yet */ }
+			const firsts = await this.sourcePages(mid, book.chapters.map(chapter => chapter.first), { transcribe: false }, signal).catch(() => [] as SourcePageText[]);
+			const opening = (page: number) => (firsts.find(row => row.page === page)?.text ?? "").replace(/\s+/g, " ").trim().slice(0, RESIDENT_OPENING);
+			const asked = await askResidentChapters({ moduleId: mid, sourceSha: sha, timeoutMs: 15_000, signal,
+				chapters: book.chapters.map(chapter => ({ ...chapter, opening: opening(chapter.first) })) }, createDecisionAdapter({ env: this.deps.env ?? process.env, maxConcurrency: 1 }));
+			const resident = book.chapters.filter((_, index) => asked.nouls[index] >= RESIDENT_AT);
+			this.note({ lane: "reading", event: "resident_chapters", module_id: mid, source_sha256: sha, resident: resident.map(chapter => chapter.name),
+				nouls: book.chapters.map((chapter, index) => [chapter.name, asked.nouls[index]]), ...(asked.failed ? { failed: asked.failed } : {}), usage: asked.usage });
+			if (asked.failed) { this.residents.delete(sha); return resident; }
+			await mkdir(dirname(file), { recursive: true }).then(() => writeFile(file, JSON.stringify({ version: RESIDENT_VERSION, resident }) + "\n")).catch(() => undefined);
+			return resident;
+		})().catch(() => { this.residents.delete(sha); return [] as Chapter[]; }));
+		return this.residents.get(sha)!;
+	}
+	/**
+	 * §276.2: the chapter the party is in: the one holding the anchor page of its scene's book pages; for a scene the table
+	 * made, the chapter kept for the campaign; then the opening scene's; then the first chapter. Undefined only without a
+	 * campaign or a bound document.
+	 */
+	async chapterScope(mid: string, campaign: string | undefined, signal?: AbortSignal): Promise<ChapterScope | undefined> {
+		if (campaign === undefined) return undefined;
+		noteChapterModule(campaign, mid);
+		const snapshot = await this.call("module.source.snapshot", { module_id: mid }, campaign);
+		const sha = String(snapshot?.file_sha256 ?? ""), pageCount = Number(snapshot?.page_count);
+		if (!sha || !Number.isSafeInteger(pageCount) || pageCount < 1) return undefined;
+		if (!this.chapterBooks.has(sha)) this.chapterBooks.set(sha, this.runtime().sourceInfo({ pdf: snapshot.pdf, cache: join(dirname(snapshot.pdf), "cache", "pages") }, signal)
+			.then(info => bookChapters(info as Row, pageCount)).catch(error => { this.chapterBooks.delete(sha); throw error; }));
+		const book = await this.chapterBooks.get(sha)!;
+		const at = (page: number | undefined) => page === undefined ? undefined : chapterHolding(book.chapters, page);
+		let chapter: Chapter | undefined, resolved: ChapterScope["resolved"] = "scene";
+		const where = (await this.call("table.capsule", { _context_read: true }, campaign).catch(() => undefined))?.where ?? {};
+		const scene = String(where.scene ?? ""), shown = String(where.display_name ?? "");
+		chapter = at(anchorPage(await this.graphPages(campaign, scene).catch(() => [])));
+		// Under lean reading the graph holds few places: the pointer index's pages for the names the scene is shown by.
+		if (!chapter) try { const skeleton = JSON.parse(await readFile(skeletonPath(this.deps.home, sha), "utf8"));
+			chapter = at(anchorPage(answerPages(skeleton, `${shown}\n${scene}`))); } catch { /* no index yet */ }
+		if (!chapter) {
+			resolved = "kept";
+			const kept = await this.keptChapter(campaign, mid);
+			chapter = kept && book.chapters.find(row => row.first === kept.first && row.last === kept.last);
+		}
+		if (!chapter) {
+			resolved = "opening";
+			const start = String((await this.call("module.status", { module_id: mid }, campaign).catch(() => undefined))?.opening?.start_scene ?? "");
+			chapter = at(anchorPage(await this.graphPages(campaign, start).catch(() => [])));
+		}
+		if (!chapter) { resolved = "first"; chapter = book.chapters.find(row => row.first > 1 || book.chapters.length === 1) ?? book.chapters[0]; }
+		const before = await this.keptChapter(campaign, mid);
+		if (!before || before.first !== chapter.first || before.last !== chapter.last) {
+			await this.keepChapter(campaign, mid, chapter).catch(() => undefined);
+			this.note({ lane: "reading", event: "chapter_scope", module_id: mid, campaign, chapter: chapter.name, first: chapter.first, last: chapter.last,
+				resolved, source: book.source, ...(before ? { previous: before.name } : {}) });
+		}
+		// §276.5: the reference chapters read from any chapter; the current one is never its own resident.
+		const current = chapter, resident = (await this.residentChapters(mid, snapshot, book, signal)).filter(own => own.first !== current.first || own.last !== current.last);
+		const scope: ChapterScope = { ...chapter, source: book.source, resolved, ...(resident.length ? { resident } : {}) };
+		this.lastScopes.set(mid, scope);
+		return scope;
+	}
+	/** §276.2: the chapter each module's last book read resolved, for the synchronous book truth rows. */
+	private lastScopes = new Map<string, ChapterScope>();
 	/** §266.3: a module's contents (built when it is not yet). */
 	async bookContentsOf(mid: string, campaign: string | undefined): Promise<ContentsRow[]> {
 		const source = await this.call("module.source.snapshot", { module_id: mid }, campaign);
@@ -604,27 +707,43 @@ export class ReadingService implements ReadingBridge {
 	async bookPages(mid: string, params: Row, signal?: AbortSignal): Promise<Row> {
 		const campaign = this.campaign(params);
 		const snapshot = await this.call("module.source.snapshot", { module_id: mid }, campaign);
-		const contents = await this.bookContentsOf(mid, campaign);
-		const { pages, section } = requestedPages(contents, params, snapshot.page_count);
+		// §276.3: the Keeper turns the current chapter's pages only; its contents are that chapter's rows.
+		const chapter = await this.chapterScope(mid, campaign, signal).catch(() => undefined);
+		const whole = await this.bookContentsOf(mid, campaign);
+		const contents = chapter ? whole.filter(row => scopeSpans(chapter).some(own => row.first <= own.last && row.last >= own.first)) : whole;
+		const asked = requestedPages(contents, params, snapshot.page_count);
+		const pages = chapter ? asked.pages.filter(page => inChapter(chapter, page)) : asked.pages, section = asked.section;
 		if (!pages.length && typeof params.focus === "string" && params.focus.trim() && params.section === undefined && params.pages === undefined)
 			return this.leanAnswer(mid, params, signal);
+		if (chapter && asked.pages.length && !pages.length) {
+			this.note({ lane: "reading", event: "book_pages", module_id: mid, campaign, pages: [], outside_chapter: asked.pages, chapter: chapter.name });
+			const receipt = chapterAbsent(chapter, `pages ${asked.pages.join(", ")}`, ["pages"], snapshot.file_sha256);
+			return { state: "ready", source_answer: { ...receipt, answer: `Pages ${asked.pages.join(", ")} are outside ${chapter.source === "none" ? "the book" : `the current chapter (${chapter.name}, pages ${chapter.first}-${chapter.last})`
+				+ (chapter.resident?.length ? ` and the book's reference chapters (${chapter.resident.map(own => `${own.name}, pages ${own.first}-${own.last}`).join("; ")})` : "")}. `
+				+ "The party is not there; for this table the book has nothing more on it. Play on from the table's memory and fill in what is needed. Do not look in other chapters." } };
+		}
 		if (!pages.length) {
-			this.note({ lane: "reading", event: "book_pages", module_id: mid, campaign, pages: [], contents: contents.length });
-			const asked = typeof params.section === "string" ? `No contents row matches ${params.section}. ` : "";
+			this.note({ lane: "reading", event: "book_pages", module_id: mid, campaign, pages: [], contents: contents.length, ...(chapter ? { chapter: chapter.name } : {}) });
+			const chaptered = !!chapter && chapter.source !== "none";
+			const missing = typeof params.section === "string" ? `No contents row ${chaptered ? "of the current chapter " : ""}matches ${params.section}. ` : "";
 			return { state: "ready", source_answer: { status: "contents", authority: "original-source-excerpts", prepared: false, source_sha256: snapshot.file_sha256,
-				answer: `${asked}The book's contents (physical pages):\n${contentsLines(contents, PAGE_BOUNDS.contents).join("\n")}`,
-				contents: contents.slice(0, PAGE_BOUNDS.contents), excerpts: [], source_refs: [], coverage: { partial: true, visual: "unassessed", unavailable_pages: [] },
-				note: "The host's contents of the book (its bookmarks, or each page's first line), not a generated answer. Turn pages with pages or section." } };
+				answer: `${missing}${chaptered ? `The current chapter's contents (${chapter!.name}, physical pages ${chapter!.first}-${chapter!.last})${chapter!.resident?.length ? ", with the book's reference chapters" : ""}` : "The book's contents (physical pages)"}:\n${contentsLines(contents, PAGE_BOUNDS.contents).join("\n")}`,
+				contents: contents.slice(0, PAGE_BOUNDS.contents), excerpts: [], source_refs: [],
+				...(chapter ? { chapter: chapterView(chapter) } : { coverage: { partial: true, visual: "unassessed", unavailable_pages: [] } }),
+				note: `The host's contents of the ${chaptered ? "current chapter" : "book"} (its bookmarks, or each page's first line), not a generated answer. Turn pages with pages or section.` } };
 		}
 		const texts = await this.sourcePages(mid, pages, { ...(campaign === undefined ? { campaign: null } : { campaign }) }, signal);
 		const excerpts = texts.filter(row => row.text.trim()).map(row => { const text = row.text.slice(0, PAGE_BOUNDS.chars); return { id: `page-${row.page}`, page: row.page, start: 0, end: text.length, text }; });
-		this.note({ lane: "reading", event: "book_pages", module_id: mid, campaign, pages: excerpts.map(row => row.page), ...(section ? { section: section.name } : {}) });
+		this.note({ lane: "reading", event: "book_pages", module_id: mid, campaign, pages: excerpts.map(row => row.page), ...(section ? { section: section.name } : {}),
+			...(chapter ? { chapter: chapter.name, ...(asked.pages.length > pages.length ? { outside_chapter: asked.pages.filter(page => !pages.includes(page)) } : {}) } : {}) });
 		return { state: "ready", source_answer: { status: "excerpts", authority: "original-source-excerpts", prepared: false, source_sha256: snapshot.file_sha256,
 			// The pages' text rides once, in excerpts, unpaged: a turned page is read whole.
 			answer: excerpts.length ? `Original physical pages ${excerpts.map(span => span.page).join(", ")} are in excerpts, in page order.` : `Pages ${pages.join(", ")} carry no text (image-only pages).`,
 			excerpts, source_refs: excerpts.map(span => ({ source_id: "pdf:" + mid, pdf_index: span.page - 1 })),
-			coverage: { partial: true, visual: "unassessed", unavailable_pages: pages.filter(page => !excerpts.some(span => span.page === page)) },
-			note: "Exact original pages the host cut from the book, not a generated answer. A page may hold Keeper-only material. Do not infer whole-book absence or overwrite table canon." } };
+			...(chapter ? { chapter: chapterView(chapter), ...(asked.pages.length > pages.length ? { outside_chapter: { pages: asked.pages.filter(page => !pages.includes(page)) } } : {}) }
+				: { coverage: { partial: true, visual: "unassessed", unavailable_pages: pages.filter(page => !excerpts.some(span => span.page === page)) } }),
+			note: "Exact original pages the host cut from the book, not a generated answer. A page may hold Keeper-only material. "
+				+ (chapter ? CHAPTER_NOTE : BOOK_ABSENCE_RULE) } };
 	}
 	/**
 	 * §263.5: the approved book passages of a module in scope for this capsule, sliced from the host's blocks. Read
@@ -664,8 +783,11 @@ export class ReadingService implements ReadingBridge {
 		try {
 			const skeleton = this.pointerIndex(mid);
 			// §266.5: while the index does not cover the whole book, the Keeper is told to turn the pages it lacks.
+			// §276.3: only the current chapter's contents rows, once a read has resolved it.
+			const scope = this.lastScopes.get(mid), rows = this.contentsReady.get(book.sha) ?? [];
 			const pagesRow = skeleton?.complete === true ? [] : [{ kind: "book_pages", note: BOOK_PAGES_NOTE,
-				contents: contentsLines(this.contentsReady.get(book.sha) ?? [], PAGE_BOUNDS.noteContents) }];
+				contents: contentsLines(scope ? rows.filter(row => scopeSpans(scope).some(own => row.first <= own.last && row.last >= own.first)) : rows, PAGE_BOUNDS.noteContents),
+				...(scope ? { chapter: chapterView(scope) } : {}) }];
 			if (!skeleton) return pagesRow;
 			const stamp = this.indexCache.get(mid)?.stamp ?? "";
 			let cached = this.planCache.get(mid);
@@ -821,8 +943,10 @@ export class ReadingService implements ReadingBridge {
 	 * reading nobody is waiting on is handed off rather than cancelled: its reader child stops and the job is
 	 * left `running` with no lock holder, which the next owner's claim re-queues with its retained attempt.
 	 */
+	private readonly chapterResolver = (campaign: string, mid: string, signal?: AbortSignal) => this.chapterScope(mid, campaign, signal);
 	dispose(options: {handOff?: boolean} = {}) {
 		this.stopped = true;
+		setChapterResolver(undefined, this.chapterResolver);
 		if (this.idleTimer) clearInterval(this.idleTimer as ReturnType<typeof setInterval>);
 		this.lanes.abort();
 		this.stopSweep();
@@ -1242,23 +1366,34 @@ export class ReadingService implements ReadingBridge {
 		const title = await this.call("module.status", { module_id: mid }, campaign).then(status => String(status?.title ?? ""), () => "");
 		const anchor = await this.answerAnchor(campaign, focus, title);
 		const searched = anchor.titled ? anchor.name : focus;
-		let pages: number[] = [...anchor.pages].slice(0, 4);
+		// §276.3: every page this answer may hold is in the current chapter; the checks it made name the receipt.
+		const chapter = await this.chapterScope(mid, campaign, signal).catch(() => undefined);
+		const allowed = (page: unknown) => !chapter || inChapter(chapter, page), checked: string[] = [];
+		if (anchor.pages.length) checked.push("graph");
+		let pages: number[] = anchor.pages.filter(allowed).slice(0, 4);
 		// The focus's own names first; the question's other names fill what is left.
 		try { const skeleton = JSON.parse(await readFile(skeletonPath(this.deps.home, snapshot.file_sha256), "utf8"));
-			pages = [...new Set([...pages, ...answerPages(skeleton, searched), ...answerPages(skeleton, `${searched}\n${question}`)])].slice(0, 4); }
+			checked.push("index");
+			pages = [...new Set([...pages, ...[...answerPages(skeleton, searched), ...answerPages(skeleton, `${searched}\n${question}`)].filter(allowed)])].slice(0, 4); }
 		catch { /* no skeleton yet: the text search alone */ }
 		if (pages.length < 4 && searched.trim() && !anchor.titled) {
 			try {
-				const found = await this.runtime().sourceSearch({ pdf: snapshot.pdf, query: focus.trim().slice(0, 256), limit: 8 } as any, signal);
-				for (const hit of (found as Row)?.matches ?? []) if (Number.isSafeInteger(hit?.page) && !pages.includes(hit.page) && pages.length < 4) pages.push(hit.page);
+				// One span is searched as itself; with resident chapters the book is searched and the hits are cut to the scope.
+				const found = await this.runtime().sourceSearch({ pdf: snapshot.pdf, query: focus.trim().slice(0, 256), limit: chapter?.resident?.length ? 20 : 8,
+					...(chapter && !chapter.resident?.length ? { first_page: chapter.first, last_page: chapter.last } : {}) } as any, signal);
+				checked.push("text_search");
+				for (const hit of (found as Row)?.matches ?? []) if (Number.isSafeInteger(hit?.page) && allowed(hit.page) && !pages.includes(hit.page) && pages.length < 4) pages.push(hit.page);
 			} catch { /* a search the source refuses leaves the skeleton's pages */ }
 		}
 		pages.sort((a, b) => a - b);
 		const texts = pages.length ? await this.sourcePages(mid, pages, { ...(campaign === undefined ? { campaign: null } : { campaign }) }, signal) : [];
 		const excerpts = texts.filter(row => row.text.trim()).map(row => { const text = row.text.slice(0, 3500); return { id: `page-${row.page}`, page: row.page, start: 0, end: text.length, text }; });
 		this.note({ lane: "reading", event: "lean_answer", module_id: mid, campaign, focus, ...(anchor.titled ? { titled: true, anchored: anchor.name } : {}),
-			...(anchor.pages.length ? { anchor_pages: anchor.pages } : {}), pages: excerpts.map(row => row.page) });
-		// The owner's book-lookup rule: nothing found here is not there; the receipt says so instead of offering the whole book's contents.
+			...(anchor.pages.length ? { anchor_pages: anchor.pages } : {}), pages: excerpts.map(row => row.page),
+			...(chapter ? { chapter: chapter.name, chapter_pages: [chapter.first, chapter.last], ...(excerpts.length ? {} : { chapter_absent: true, checked }) } : {}) });
+		// §276.4: nothing in the current chapter is an answer of its own: absent from the book, the Keeper fills it in. Without a
+		// chapter scope the same rule holds: nothing found here is not there, and no contents of the whole book are offered.
+		if (chapter && !excerpts.length) return { state: "ready", source_answer: chapterAbsent(chapter, focus, checked, snapshot.file_sha256) };
 		// 1026k An Amaranthine Desire T10: the pages rode twice (answer and excerpts) and the answer was cut into 4-KiB parts of
 		// about 500 characters of book each, 20 parts for four pages; the Keeper read four, then turned the same pages by number.
 		// The pages ride once, in excerpts, and `host_pages` has the tool hand them over whole, as a page turn is.
@@ -1267,8 +1402,8 @@ export class ReadingService implements ReadingBridge {
 			answer: excerpts.length ? `Original physical pages ${excerpts.map(span => span.page).join(", ")} are in excerpts, in page order.`
 				: `The book has nothing on ${focus} for here. ${BOOK_ABSENCE_RULE}`,
 			excerpts, source_refs: excerpts.map(span => ({ source_id: "pdf:" + mid, pdf_index: span.page - 1 })),
-			coverage: { partial: true, visual: "unassessed", unavailable_pages: [] },
-			note: `Exact original pages the host sliced for this focus (its skeleton index and a text search), not a generated answer. Read them for what was asked; a page may hold Keeper-only material. ${BOOK_ABSENCE_RULE}` } };
+			...(chapter ? { chapter: chapterView(chapter) } : { coverage: { partial: true, visual: "unassessed", unavailable_pages: [] } }),
+			note: `Exact original pages the host sliced for this focus (its skeleton index and a text search), not a generated answer. Read them for what was asked; a page may hold Keeper-only material. ${chapter ? CHAPTER_NOTE : BOOK_ABSENCE_RULE}` } };
 	}
 
 	/**
