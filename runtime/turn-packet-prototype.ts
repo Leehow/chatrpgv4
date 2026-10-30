@@ -105,7 +105,13 @@ function parameterError(label:string,schema:TSchema,value:unknown):Error {
   }
   const received=error.instancePath.split('/').slice(1).reduce<unknown>((row,key)=>object(row)||Array.isArray(row)?(row as Record<string,unknown>)[key.replace(/~1/g,'/').replace(/~0/g,'~')]:undefined,value);
   const type=received===null?'null':Array.isArray(received)?'array':typeof received;
-  return `${label}${error.instancePath}: ${explanation(error)} (${error.keyword} ${JSON.stringify(error.params)}); received ${type}`;
+  // live 1030j du T14: a list sent as a string of JSON text the parser cannot read is refused for its type; say where the
+  // text breaks, so the retry sends the list itself (a string that does parse is decoded before this check).
+  let text='';
+  if(error.keyword==='type'&&(error.params as Record<string,unknown>)?.type==='array'&&typeof received==='string'){
+   try{JSON.parse(received);}catch(problem){text=`; the string is not valid JSON (${problem instanceof Error?problem.message.slice(0,120):'unreadable'}): send the list itself as a JSON array, not as text`;}
+  }
+  return `${label}${error.instancePath}: ${explanation(error)} (${error.keyword} ${JSON.stringify(error.params)}); received ${type}${text}`;
  });
  const fields=[...new Set(errors.map(error=>`${label}${error.keyword==='additionalProperties'?'/<additional-property>':error.instancePath}: ${explanation(error)}`.slice(0,300)))];
  return new TurnPacketParameterError(`Invalid decision command: ${[...new Set(findings)].join('; ')||`${label} requires nonblank bounded strings`}`.slice(0,1600),fields);

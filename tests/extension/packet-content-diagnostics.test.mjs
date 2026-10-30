@@ -51,3 +51,8 @@ test('a packet place command drops its blank optional fields (live el-v2-2026102
  const normalized=normalizeTurnPacketArguments({version:4,commands:[{kind:'place',action:'move',to:'Central Library',via:'',relation:' '}]});
  assert.deepEqual(normalized.args.commands[0],{kind:'place',action:'move',to:'Central Library'});
 });
+test('a list sent as unreadable JSON text says where the text breaks (live 1030j du T14)',()=>{
+ const broken='[{"actor":"npc_28","to":["investigator_1"],"act":"answer","content":[]}]]';
+ assert.throws(()=>turnPacket(JSON.stringify({version:4,interactions:broken}),schema),
+  error=>/packet\/interactions: must be array .*received string; the string is not valid JSON \(.+\): send the list itself as a JSON array/.test(error.message));
+});
