@@ -44,6 +44,7 @@ export function continuityBrief(job: any, limits: {max_requests: number}, input:
 }
 import {patchCard} from '../table/card-patch.ts';
 import {choosePreset, presetOfferOf, presetRows, type PresetDecision} from './creator-preset.ts';
+import {createWritingSurfaceJudge} from './writing-surfaces.ts';
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<any>;
 
@@ -153,6 +154,7 @@ export default function modsExtension(pi: ExtensionAPI): void {
   let prefetchController: AbortController | undefined;
   let stopped = false;
   let equipmentWork: Promise<void> | undefined;
+  const judgeSurfaces = createWritingSurfaceJudge({record: row => record?.(row)});
   let equipmentAgain = false;
   /** The worker owns only preparation; publication rebinds the exact owned row in the kernel. */
   function prepareEquipment(campaign: string): void {
@@ -161,6 +163,9 @@ export default function modsExtension(pi: ExtensionAPI): void {
     const current = call, owner = runtime, signal = optionalController.signal;
     const work = (async()=>{
       await new Promise<void>(resolve=>setImmediate(resolve));
+      if (stopped || signal.aborted || current !== call || owner !== runtime) return;
+      // §276: which plain carried rows are writing surfaces, asked once per row before the rows are prepared.
+      await judgeSurfaces(campaign,current,signal);
       if (stopped || signal.aborted || current !== call || owner !== runtime) return;
       const prepared = await current('mods.equipment.prepare',{campaign});
       if (stopped || signal.aborted || current !== call || owner !== runtime) return;

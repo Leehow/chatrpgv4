@@ -9,7 +9,7 @@ import { array, clone, entries, equal, integer, normalize, repr, row, string, tr
 import type { CampaignWritePort, DomainEvent } from '../transactions.js';
 import type { ApplyContext } from '../apply/index.js';
 import {stagedSheet,stagePendingItemIdentity} from '../apply/inventory.js';
-import { required } from '../write/store.js';
+import { CampaignWriter, required } from '../write/store.js';
 import { validateDefinition } from './definition.js';
 import { appendDocument, documentVersion, initializeDocument, ownershipChanged, writeDocument } from './documents.js';
 import {rootObjectOwner} from '../read/object-owner.js';
@@ -25,6 +25,7 @@ import type { ModJobs } from './jobs.js';
 import {registerUsage, validateUsage, validateUsageRequest} from './usages.js';
 import {stageDossier} from './dossier-door.js';
 import {bindSourceObject, sourceObjectIdentity} from './source-object.js';
+import {claimWritingSurface} from './surface-verdicts.js';
 import {refuseJoinedInDocument} from '../write/shared-untold.js';
 
 const field = (value: Row, key: string, fallback: any): any => Object.hasOwn(value, key) ? value[key] : fallback;
@@ -48,6 +49,17 @@ export function ownerIn(party: readonly Row[], graph: ModuleGraph, world: Row, n
     catch (error) { if (!(error instanceof RpcError)) throw error; throw new RpcError('unknown_entity', `No object owner named ${repr(name)}`,
         {fix: 'Use the exact investigator name in details.investigators, or an existing NPC, scene or container name from look. Do not translate or extend a registered name.',
          details: {field:'object.owner', investigators:party.map(sheet=>sheet.name)}}); }
+}
+/**
+ * §276: the instance an adoption names when it already exists in this investigator's hands -- the exact instance name, or
+ * the sheet row the host registered beside play. Handles only, never a reading of the name.
+ */
+function claimedInstance(world: Row, owner: Row, adopt: string, prior: Row | null): Row | null {
+    const held = (item: Row): boolean => { const root = rootObjectOwner(world, item); return root.kind === 'investigator' && root.id === owner.id; };
+    const named = (item: Row): boolean => [item.equipment_name, item.name].some(value => normalize(string(value)) === normalize(adopt));
+    if (prior) return held(prior) && named(prior) ? prior : null;
+    const matches = Object.values(row(objectRegistry(world).instances)).map(row).filter(item => item.equipment_actor === owner.id && named(item) && held(item));
+    return matches.length === 1 ? matches[0] : null;
 }
 export async function stageModEffect(context: ApplyContext, original: Row, sheets: Map<string, Row>, jobs: ModJobs): Promise<{receipt: Row; event: DomainEvent}> {
     const {campaign, graph, world, callId} = context, turn = context.turn.turn;
@@ -93,12 +105,12 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         if (canonicalJson(accepted.definition ?? null) !== canonicalJson(draft)) throw new RpcError('invalid_params', 'Definition differs from the accepted Mod job');
         // §129.4: a placement already minted its instance against a placeholder; this replaces it in place.
         const replaced = isPlaceholder(findNamedObject(objectRegistry(world).definitions, draft.name));
-        const value = defineObject(world, draft, provenance);
+        const value = defineObject(world, draft, provenance), kept = value.digest !== jsonDigest(validateDefinition(draft));
         // The registration this definition was queued for is now real, so its marker stops standing in
         // for it -- otherwise the row would stay hidden from the audit that is supposed to notice gaps.
         clearRegistration(world, packageRow.id, string(value.name), string(value.category));
         return {receipt: {id: mint(`definition:${callId}`), kind: 'definition', name: value.name, category: value.category, definition: value.id, visibility: 'keeper', call_id: callId,
-                ...(replaced ? {replaced_placeholder: true} : {})},
+                ...(replaced ? {replaced_placeholder: true} : {}), ...(kept ? {kept_registered: true} : {})},
             event: {type: 'definition-created', data: {name: value.name, category: value.category}}};
     }
     // Contract 28.7, §180.8–§180.9: what an enabled package establishes at the table, in its own namespace.
@@ -108,7 +120,8 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         const name = effect.name;
         if (typeof name !== 'string' || !name.trim()) throw new RpcError('invalid_params', 'Object needs a name');
         const owner = await objectOwner(campaign, graph, world, effect.to);
-        const prior = objectInstance(world, name), identity = Object.hasOwn(effect, 'source_object') ? sourceObjectIdentity(graph, effect.source_object) : null;
+        let prior = objectInstance(world, name);
+        const identity = Object.hasOwn(effect, 'source_object') ? sourceObjectIdentity(graph, effect.source_object) : null;
         // §264.10: a first placement handed over by someone nobody registered (the newsstand vendor, a cab driver) keeps
         // that giver as a label on the receipt; nobody is registered only so that they can hand a thing over.
         const unregisteredGiver: Row[] = [];
@@ -120,6 +133,32 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
                 unregisteredGiver.push({field: 'from', reason: 'unregistered_giver', giver: string(effect.from)});
             }
         }
+        // §276: an adoption of carried equipment that already has its instance in this investigator's hands is that claim.
+        if (Object.hasOwn(effect, 'adopt') && owner.kind === 'investigator' && typeof effect.adopt === 'string' && effect.adopt.trim()) {
+            const claimed = claimedInstance(world, owner, effect.adopt, prior);
+            if (claimed) {
+                const {adopt: _adopt, definition: _definition, from: _from, ...rest} = effect, seed = row(rest.document);
+                const claim: Row = {...rest, name: claimed.name};
+                if (equal(claim.quantity, claimed.quantity)) delete claim.quantity;
+                if (equal(claim.condition, claimed.state.condition)) delete claim.condition;
+                // Its pages are already open to writing: first text given with the adoption is appended to them.
+                if (Object.hasOwn(claim, 'document')) {
+                    if (seed.action == null && typeof seed.text === 'string' && claimed.document && !claimed.document.image && !Object.hasOwn(seed, 'handout'))
+                        claim.document = seed.text.trim() ? {action: 'append', text: seed.text} : undefined;
+                    if (claim.document === undefined) delete claim.document;
+                }
+                if (!['document', 'condition', 'quantity'].some(key => Object.hasOwn(claim, key))) {
+                    const definition = row(objectRegistry(world).definitions)[claimed.definition];
+                    return {receipt: {id: mint(`definition:adopt-${callId}`), kind: 'definition', name: claimed.name, category: definition?.category ?? null,
+                            definition: claimed.definition, instance: claimed.id, adopted: effect.adopt, subject: owner.id, visibility: 'keeper', call_id: callId, already_claimed: true},
+                        event: {type: 'resource-changed', data: {resource: 'equipment_representation', subject: owner.id, item: claimed.name}}};
+                }
+                effect = claim; prior = claimed; source = owner;
+            }
+        }
+        // §276: writing in a carrier its `to` already holds directly; the holder is the only `from` there is (as §227.4 for reading).
+        if (prior && !source && ['write', 'append'].includes(row(effect.document).action)
+            && row(prior.owner).kind === owner.kind && row(prior.owner).id === owner.id) source = owner;
         let adopted: any = null;
         // Contract §88. Where it stands, and what it stands on. `validateDisposition` settles which of the
         // three offer positions this call is (and refuses a plain move that would walk past an offer still
@@ -185,6 +224,17 @@ export async function stageModEffect(context: ApplyContext, original: Row, sheet
         }
         if (!prior && !Object.hasOwn(effect, 'adopt') && owner.kind === 'investigator') {
             const sheet = sheets ? await stagedSheet(context, sheets, owner.name) : selectActor(await campaign.party() as Row[], owner.name);
+            // §276: writing in a carried row nobody has judged yet (the host's question failed or has no Jev): the Keeper's
+            // writing in it is the evidence, so it is registered beside play from now on; this turn takes the one-batch route.
+            const carried = ['write','append'].includes(row(effect.document).action) ? array(sheet.equipment).find(item => typeof item === 'string'
+                ? item === name : isJsonObject(item) && !truth(item.object_id) && item.name === name) : undefined;
+            if (carried !== undefined) {
+                // Written past this batch's staging: the refusal discards the batch, not the evidence its attempt gave.
+                const claimed = await claimWritingSurface(new CampaignWriter(context.kernel, campaign.id), owner.id, carried);
+                throw new RpcError('unknown_entity', `${repr(name)} is carried equipment not yet registered as a writable carrier`,
+                    {fix:`Write in it this turn with one apply: {kind:"define",name:${repr(name)},category:"item"} and {kind:"object",name:${repr(name)},definition:${repr(name)},to:${repr(owner.name)},adopt:${repr(name)},document:{presentation:"paper"|"notebook"|"book",text:<this writing>},why} -- document without action.${claimed ? ' From the next turn it is registered beside play; then append to it.' : ''}`,
+                     details:{field:'object.name',reason:'document_not_found',equipment_row:name}});
+            }
             if (array(sheet.equipment).some(item => typeof item === 'string' ? item === name : isJsonObject(item) && item.name === name))
                 throw new RpcError('invalid_params', 'This equipment is already owned; use object.adopt to enrich it instead of awarding another copy',
                     {fix:`Keep its define in this batch and send this effect as {kind:"object", name, adopt:${repr(name)}, definition:<the defined name>, to:${repr(owner.name)}}. A sheet row the fiction only shows or mentions needs no registration: drop both effects.`,
