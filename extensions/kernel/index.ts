@@ -86,6 +86,7 @@ import {admissionRefusalScope,refusedEffectScope,effectScopes} from './refusal-s
 import { stripDialectPrefixes, omitEmptyEmbeddedArguments } from "./dialect-prefix.ts";
 import { decodeSerializedStrings } from "./encoded-string-argument.ts";
 import { readyAnswers } from "../../runtime/ready-answers.ts";
+import { SOURCE_UNAVAILABLE_NOTE } from "../../shared/book-absence.ts";
 import { prefetchEnabled, prefetchTargets } from "../../runtime/prefetch.ts";
 import { currentChapter, scopeAnswer } from "../../runtime/chapter-scope.ts";
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
@@ -7087,7 +7088,17 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 							sourceAnswer = pendingPrepare(response, read);
 						}
 					}
-					catch (readFailure) { throw sourceMaterialRefusal(readFailure, sourceRead); }
+					catch (readFailure) {
+						// A technical failure of the book read is a structured receipt, never a tool error the Keeper turns into a story obstacle.
+						// Only the reads the host itself hands back (lean reading's pointer_reading / page_mode) become this receipt; a failed or
+						// timed-out reading keeps its own refusal with the later-retry fix.
+						const handedBack = isKernelError(readFailure) && readFailure.code === 'needs'
+							&& ['pointer_reading', 'page_mode'].some(cause => asString(readFailure.details?.reason) === cause || readFailure.message.includes(cause));
+						if (!handedBack) throw sourceMaterialRefusal(readFailure, sourceRead);
+						sourceAnswer = { status: 'source_unavailable', technical: true, reason: asString(readFailure.details?.reason) ?? 'reading_failed',
+							focus: String(params.query), prepared: false, note: SOURCE_UNAVAILABLE_NOTE };
+						void record({ lane: 'reading', event: 'source_unavailable', turn: state.turn, focus: String(params.query), reason: sourceAnswer.reason });
+					}
 					if (sourceAnswer) {
 						const raw = sourceAnswer as Record<string, unknown>, focus = String(params.query), question = String(params.question ?? '');
 						if (raw.status !== 'pending') {

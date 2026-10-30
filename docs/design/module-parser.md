@@ -85,6 +85,7 @@
 - **KP 用不用书。** MiniMax KP 很少选用 `source_N`，第一刀也没理会 p13 的拖延计划；翻书模式下 KP 会不会主动翻书，要靠真桌验证。
 - **开场落座的 Jev 判断只问图里的人**（cast 里的人只能由 KP 自己入座，§266.7）。
 - **翻书一次最多 3 页**，跨节内容要翻多次；目录节名靠拼写匹配，节名含糊时 KP 要改用页码。
+- **读书的技术失败不进故事（2026-10-30）。** lean reading 且未开 `PI_COC_DETAIL_READS` 时，带 material 的 prepare 一定被退回（pointer_reading），所以 lookup 不再提供 material 参数；被宿主退回的读取（pointer_reading、page_mode）回给 KP 的是结构化回执 `status: source_unavailable, technical: true`，说明这是技术限制、不得写成字迹不清或遗失（1030c du 第 4、5 轮就是这样被写成了剧情障碍）。读取失败、超时、无原始文档仍保留各自原有的拒绝和“之后再试”的指引。
 - **查书规则（用户 2026-10-29）：本处没有就是没有。** 玩家在书的某一部分时，这部分查不到的东西就当没有，由 KP 依桌上记忆合理补出，不去书的其他部分找；桌上记忆优先于书，矛盾时以记忆为准或融合成一个说法。所有查书回执和指南都用同一句（`shared/book-absence.ts` 的 BOOK_ABSENCE_RULE）：空检索不再附全书目录、不再引导 source_mode=pages；携带答案的 read_next 只是“需要时可读”，不是“请读完”；keeper_support 的 missing 只要求读一次，读不到即补全；翻书模式的提示改成“翻这一部分”。当前章节的硬边界由 §276 实现（lookup、续页、预取和 Jev 定位都按当前章节切，另加 Jev 判定的常驻章节），查不到时回执是 `chapter_absent`，用的是同一句规则。
 - **已读答案续页（2026-10-29 修）。** run 把本轮落地和场景内留存的 source 答案交给 carried views 时漏传 `cached`，多页答案每次只带第一页、标 `cache_unavailable`、没有 `read_next`，KP 只好把同一页再查一次（1029u/y Grok：7 次首调用、23 次 source 读取）。现在宿主仍持有的答案带续页。
 - **预取整页交付（2026-10-30）。** 1029p 根因：主动 lookup 把宿主切好的原书页（`host_pages`）整份交出，预取答案却在携带通道里被重新切成 4 KiB／512 B 小段，两臂各 34/45 次只交了首段，关键内容落在后段，KP 只好续读或换焦点再查。现在预取来的 `host_pages` 答案按书页顺序整页交付，到预取预算 16 KiB 为止，放不下的页列在 `pages_not_sent`，不给 read_next。

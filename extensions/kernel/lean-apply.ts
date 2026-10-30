@@ -144,6 +144,13 @@ export function offeredTools(tools: readonly CocToolSpec[], env: Readonly<Record
     parameters.properties.kind.enum=parameters.properties.kind.enum.filter((kind:string)=>kind!=='support');
     return {...spec,parameters,description:`${spec.description} Jev support is unavailable in this session and is not an offered kind; use direct lookup and recall.`};
   });
+	// Lean reading without detail reads hands every detail preparation back (pointer_reading): material map / exhibits is not offered.
+	if(env.PI_COC_LEAN_READING==='1'&&env.PI_COC_DETAIL_READS!=='1')tools=tools.map(spec=>{
+    if(spec.name!=='lookup')return spec;
+    const parameters=cloneSchema(spec.parameters) as Record<string,any>;
+    delete parameters.properties.material;
+    return {...spec,parameters,description:`${spec.description} With lean reading the book's detail preparation (material map or exhibits) is not available: use source_mode answer or pages.`};
+  });
 	if(capabilities.memoryQueryAvailable===false)tools=tools.map(spec=>{
     if(spec.name!=='recall')return spec;
     const parameters=cloneSchema(spec.parameters) as Record<string,any>;
