@@ -19,7 +19,7 @@ import {npcProfileOf} from '../resolve/context.js';
 import { sha256Text,isJsonObject } from '../json.js';
 import { appendJsonl, fileSize, truncateFile, writeJsonAtomic } from '../fileio.js';
 import { CampaignSnapshot, loadModule, loadCampaignModule, replayTrail, type LoadedModule } from '../read/campaign.js';
-import { scopedModuleRoot } from '../modules/campaign-scope.js';
+import { retireResidualFork, scopedModuleRoot } from '../modules/campaign-scope.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
 import { DirectorGraph, TextGraph, Ontology } from '../read/content.js';
 import { RuleObservations } from '../read/rule-facts.js';
@@ -880,6 +880,8 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             missingContribution('visual source creation');
         if(!contributions.mods)await defaultModPlan(context, {}, language);
         if (starter) await registerStarter(context, moduleId);
+        // §22.6: a registration left under this id by an earlier, abandoned attempt is no fork of the campaign created here.
+        await retireResidualFork(context, id, moduleId);
         const root = await scopedModuleRoot(context, id, moduleId) ?? join(context.stateRoot, 'modules');
         const moduleMeta = clone(row(await readSourceMetadata(join(root,moduleId),context.stateRoot,context.locks)));
         if (!starter && pregen != null)

@@ -1,4 +1,4 @@
-import {readSourceMetadata} from './source-state.js';
+import {readSourceMetadata, sourceState} from './source-state.js';
 /** A reusable library publication seeds one independently writable campaign source. */
 import { constants } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm } from 'node:fs/promises';
@@ -33,7 +33,8 @@ export async function scopedModuleRoot(context: KernelContext, campaign: string,
     if (await resolvedPath(destination) !== join(await resolvedPath(scopeRoot), campaign, 'modules', id))
         throw new RpcError('invalid_params', 'campaign module path redirects outside its own scope');
     const campaignFile = join(context.campaignsRoot, campaign, 'campaign.json');
-    if (await context.snapshots.isFile(campaignFile)) {
+    const created = await context.snapshots.isFile(campaignFile);
+    if (created) {
         const meta = row(await context.snapshots.readJson(campaignFile));
         if (meta.module_id !== id)
             throw new RpcError('invalid_params', 'the requested module does not belong to this campaign');
@@ -64,7 +65,45 @@ export async function scopedModuleRoot(context: KernelContext, campaign: string,
     const meta = await store.module(id);
     if (meta.id !== id || meta.campaign_scope !== campaign)
         throw new RpcError('invalid_params', 'the private module belongs to a different campaign scope');
-    return scoped.moduleRoot!;
+    // A fork is its published graph, not its registration. The source database outlives the files it describes: a
+    // workspace moved or removed from disk (live 1031b: an aborted setup's directories renamed away, its campaign id
+    // reused) leaves a registration that would route every read to a graph that is not there.
+    const graph = await store.graphPath(id, meta);
+    if (await context.snapshots.isFile(graph)) return scoped.moduleRoot!;
+    // Before campaign.json exists nothing has been played on it: the registration is residue of an earlier attempt
+    // under the same id, and the campaign has not forked. campaign.create retires such a residue (retireResidualFork),
+    // so the created campaign keeps reading the library until its next private write forks it again.
+    if (!created || truth(meta.retired)) return null;
+    // A created campaign's own workspace is never silently replaced by the library: its reads are refused, actionably.
+    throw new RpcError('campaign_not_ready', `the private source workspace of campaign ${repr(campaign)} has no published graph for module ${repr(id)}`, {
+        fix: `restore this campaign's private source workspace (.coc/module-campaigns/${campaign}/modules/${id}) from where it was moved, or create a new campaign on this book`,
+        details: { reason: 'module_not_prepared', campaign, module_id: id, missing: relative(context.stateRoot, graph) },
+    });
+}
+
+/** §22.6: a registered private workspace with no published graph that is residue, not a campaign's own fork (see scopedModuleRoot). */
+async function residualRegistration(context: KernelContext, campaign: string, id: string): Promise<Row | null> {
+    const store = new ModuleStore(moduleContext(context, campaign));
+    if (!await store.exists(id)) return null;
+    const meta = await store.module(id);
+    if (meta.campaign_scope !== campaign || await context.snapshots.isFile(await store.graphPath(id, meta))) return null;
+    return truth(meta.retired) || !await context.snapshots.isFile(join(context.campaignsRoot, campaign, 'campaign.json')) ? meta : null;
+}
+
+/**
+ * campaign.create, before campaign.json exists: a residual registration under this id is marked retired in the source
+ * database, so the campaign it creates reads the library (§22.6) instead of being refused as a damaged fork. The record
+ * and its directory stay; the campaign's next private write moves the directory aside and replaces the registration.
+ */
+export async function retireResidualFork(context: KernelContext, campaign: string, moduleId: string): Promise<boolean> {
+    const scoped = moduleContext(context, campaign), id = validateModuleId(moduleId), store = new ModuleStore(scoped);
+    return withOptionalExclusiveLock(context.locks, join(scoped.moduleRoot!, `.seed-${id}.lock`), async () => {
+        const meta = await residualRegistration(context, campaign, id);
+        if (!meta || truth(meta.retired)) return false;
+        meta.retired = { at: nowIso(), reason: 'graph_missing', missing: relative(context.stateRoot, await store.graphPath(id, meta)) };
+        await sourceState(context.stateRoot).update(store.moduleDir(id), { metadata: meta }, context.locks);
+        return true;
+    });
 }
 
 export async function ensureCampaignModule(context: KernelContext, campaign: string, moduleId: string): Promise<KernelContext> {
@@ -190,7 +229,16 @@ export async function ensureCampaignModule(context: KernelContext, campaign: str
                 // Publication is one atomic rename; a failed or interrupted fork leaves no
                 // readable half-workspace and no staging directory behind.
                 await mkdir(dirname(destination), { recursive: true });
-                try { await rename(temporary, destination); }
+                // A residual registration (scopedModuleRoot) is replaced by this seed. Whatever was written into its
+                // directory meanwhile (source navigation such as sections.json) is moved aside as evidence, never deleted.
+                const residual = await residualRegistration(context, campaign, id);
+                if (residual && await context.snapshots.pathExists(destination))
+                    await rename(destination, join(scoped.moduleRoot!, `.residue-${id}-${randomUUID()}`));
+                try {
+                    await rename(temporary, destination);
+                    // The source database is authoritative and would keep answering with the residue's metadata.
+                    if (residual) await sourceState(context.stateRoot).update(destination, { metadata: privateMeta, jobs: [] }, context.locks);
+                }
                 catch (error) {
                     // A lock-less race lost publication to another writer; its validated seed stands.
                     await rm(temporary, { recursive: true, force: true });
