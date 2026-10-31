@@ -219,6 +219,27 @@ test('§276.5: a Jev that cannot answer leaves no resident chapter, and the next
  }finally{globalThis.fetch=oldFetch;}
 }));
 
+test('§276.5: a verdict with any chapter unanswered sets no resident chapter, even one answered yes, and is not kept',async()=>lean(async()=>{
+ // audit 1031: the code kept the chapters already answered above the threshold; the contract says none.
+ const root=playtestScratch('chapter-scope','resident-partial-');
+ const oldFetch=globalThis.fetch;let calls=0;
+ globalThis.fetch=async(_url,options)=>{calls++;const sent=JSON.parse(options.body),answers={};
+  for(const [key] of Object.entries(sent.questions??{})){const own=sent.state.book_chapters[key.replace(/^resident_/,'')];
+   if(own.heading==='Background')answers[key]={type:'noul',noul:0.9};
+   else if(own.heading!=='Diner')answers[key]={type:'noul',noul:0.1};}
+  return Response.json({model:sent.model,usage:{input_tokens:10,output_tokens:2},answers});};
+ try{
+  const bookmarks=[{name:'Background',page:2},{name:'Intro',page:3},{name:'Diner',page:6}];
+  const {reading}=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  assert.equal((await reading.chapterScope('blood-road','c1')).resident,undefined,'no resident chapter at all');
+  reading.dispose();
+  const again=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  await again.reading.chapterScope('blood-road','c1');
+  assert.equal(calls,2,'nothing kept: the next session asks again');
+  again.reading.dispose();
+ }finally{globalThis.fetch=oldFetch;}
+}));
+
 test('§276.2: a place locates the party only when more than half of its pages stand in one chapter',()=>{
  const book=[{name:'front matter',first:1,last:1},{name:'Keeper background',first:2,last:3},{name:'Player hook',first:4,last:4},
   {name:'Town',first:5,last:6},{name:'Beach',first:7,last:14},{name:'Grave',first:15,last:17},{name:'Pregens',first:18,last:20}];

@@ -610,7 +610,8 @@ export class ReadingService implements ReadingBridge {
 			const resident = book.chapters.filter((_, index) => asked.nouls[index] >= RESIDENT_AT);
 			this.note({ lane: "reading", event: "resident_chapters", module_id: mid, source_sha256: sha, resident: resident.map(chapter => chapter.name),
 				nouls: book.chapters.map((chapter, index) => [chapter.name, asked.nouls[index]]), ...(asked.failed ? { failed: asked.failed } : {}), usage: asked.usage });
-			if (asked.failed) { this.residents.delete(sha); return resident; }
+			// A verdict with any question unanswered sets no resident chapter at all (§276.5), and is asked again next session.
+			if (asked.failed) { this.residents.delete(sha); return []; }
 			await mkdir(dirname(file), { recursive: true }).then(() => writeFile(file, JSON.stringify({ version: RESIDENT_VERSION, resident }) + "\n")).catch(() => undefined);
 			return resident;
 		})().catch(() => { this.residents.delete(sha); return [] as Chapter[]; }));
