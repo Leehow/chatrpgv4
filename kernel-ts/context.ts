@@ -17,6 +17,8 @@ export interface KernelContext {
   readonly locks: AdvisoryLocks;
   readonly rng: PythonRandom;
   readonly seedLocked: boolean;
+  /** The locked seed new entity ids are derived from (`ids.ts`); null in play, where they are random. */
+  readonly entitySeed: string | null;
   /** Deadline for the per-campaign RPC lock. Below the RPC transport's own timeout on purpose, so
    *  a contended campaign is reported as a contended campaign and not as a dead transport. */
   readonly campaignLockTimeoutMs: number;
@@ -55,7 +57,7 @@ export async function createKernelContext(options: {
   return Object.freeze({
     workspace, content, stateRoot, campaignsRoot: join(stateRoot, "campaigns"),
     snapshots, git: createGitRuntime(workspace, options.env), locks: options.locks ?? createAdvisoryLocks(),
-    rng, seedLocked: Boolean(options.seed),
+    rng, seedLocked: Boolean(options.seed), entitySeed: options.seed || null,
     campaignLockTimeoutMs: options.campaignLockTimeoutMs
       ?? (Number((options.env ?? process.env).PI_COC_CAMPAIGN_LOCK_TIMEOUT_MS) || CAMPAIGN_LOCK_TIMEOUT_MS),
   });

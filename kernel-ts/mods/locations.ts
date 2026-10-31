@@ -1,5 +1,5 @@
 /** Enhanced Locations v2 (contract §250) stages only inside the existing apply transaction. */
-import {randomUUID} from 'node:crypto';
+import {entityId} from '../ids.js';
 import {Check,Errors} from 'typebox/value';
 import {PlaceEffect} from '../../shared/place-structures.js';
 import type {DomainEvent} from '../transactions.js';
@@ -81,7 +81,7 @@ export function stageLocation(context:ApplyContext,given:Row,active:readonly Row
     const createPlace=(name:string,leaf:string,within:string|null,description:string):Row=>{
         if([...graph.nodes.values()].some(node=>node.node_kind!=='scene'&&graph.nameKeys(node).some(key=>normalize(key)===normalize(name))))
             throw new RpcError('invalid_params','This name already identifies a non-place entity',{details:{reason:'place_name_taken',name}});
-        const record={id:`scene-location-${randomUUID()}`,name,label:leaf,within,description,turn:turn.turn,
+        const record={id:entityId(context.kernel,'scene-location',[turn.turn,callId,'place',name],id=>state.places.some((row:Row)=>row.id===id)),name,label:leaf,within,description,turn:turn.turn,
             source_anchor:graph.handle(graph.scene(world.active_scene)),provider:provider.id};
         state.places.push(record);
         added.push(name);
@@ -119,7 +119,7 @@ export function stageLocation(context:ApplyContext,given:Row,active:readonly Row
                     adjusted.push({field:`additions[${index}].features`,reason:'existing_feature_kept',place:handle,feature:existing.name});
                 continue;
             }
-            state.features.push({id:`feature-location-${randomUUID()}`,place:handle,...clone(draftFeature),description:draftFeature.description??draftFeature.name,turn:turn.turn});
+            state.features.push({id:entityId(context.kernel,'feature-location',[turn.turn,callId,handle,draftFeature.name],id=>state.features.some((row:Row)=>row.id===id)),place:handle,...clone(draftFeature),description:draftFeature.description??draftFeature.name,turn:turn.turn});
             features.push(draftFeature.name);
         }
     }
@@ -169,7 +169,7 @@ export function stageLocation(context:ApplyContext,given:Row,active:readonly Row
         try{feature=locationFeature(world,to,effect.at);}
         catch(error){
             if(!unknownName(error))return reference('at',effect.at,()=>{throw error;});
-            feature={id:`feature-location-${randomUUID()}`,place:to,name:String(effect.at).trim(),description:String(effect.at).trim(),turn:turn.turn};
+            feature={id:entityId(context.kernel,'feature-location',[turn.turn,callId,to,String(effect.at).trim()],id=>state.features.some((row:Row)=>row.id===id)),place:to,name:String(effect.at).trim(),description:String(effect.at).trim(),turn:turn.turn};
             state.features.push(feature);features.push(feature.name);
             adjusted.push({field:'at',reason:'implicit_feature',feature:feature.name});
         }
