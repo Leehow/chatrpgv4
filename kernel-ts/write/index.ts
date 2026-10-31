@@ -43,7 +43,7 @@ import { array, entries, values, row, clone, number, string, truth, repr, chars,
 import { readingFocus } from '../read/table-entities.js';
 import { CampaignWriter, freshTurn, nowIso, required, missingContribution, createTurnTransaction, rememberCall, turnStateError, parseCallId } from './store.js';
 import { checked, commit, CommitFailed, head } from './history.js';
-import { registerStarter } from './source.js';
+import { registerStarter, startSceneCandidates } from './source.js';
 import { playsFromReading } from '../modules/bound-source.js';
 import { validateDifficulty } from '../setup/difficulty.js';
 import { resolveStartScene } from '../modules/visual.js';
@@ -920,8 +920,19 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             chosen = accepted.scene;
         }
         if (chosen) {
-            if (!graph || resolveStartScene(graph.raw, chosen, await loadModuleContract(context)) == null)
-                throw new RpcError('invalid_params', 'start_scene must name an authored opening');
+            // The refusal names what would be accepted, so a setup that guessed can pick instead of guessing again
+            // (live 1031b: 93 and 188 calls retried near-misses of one opening against a refusal that listed none).
+            if (!graph)
+                throw new RpcError('invalid_params', 'start_scene must name an authored opening, and this module has no prepared graph to name one from',
+                    {fix: 'prepare the module first (its preparation step), then create the campaign with one of the openings it lists',
+                     details: {field: 'start_scene', reason: 'module_not_prepared', given: chosen}});
+            const contract = await loadModuleContract(context);
+            if (resolveStartScene(graph.raw, chosen, contract) == null) {
+                const candidates = startSceneCandidates(graph.raw, row(contract.graph.actor_dossier)).map(scene => ({scene: string(scene.node_id), name: string(scene.name)}));
+                throw new RpcError('invalid_params', 'start_scene must name an authored opening',
+                    {fix: candidates.length ? 'pass one of details.candidates as start_scene, by its scene id' : 'this module lists no authored opening: create the campaign without start_scene',
+                     details: {field: 'start_scene', given: chosen, candidates}});
+            }
         }
         const playable = graph && (!playsFromReading(moduleMeta) || await setupOpeningReady(moduleId, chosen || '', id));
         const [world, start] = playable ? initialWorld(graph!, chosen,!!moduleMeta.source_reference) : [null, chosen && graph ? graph.handle(graph.scene(chosen)) : null];
