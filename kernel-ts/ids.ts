@@ -8,8 +8,9 @@ import { createHash, randomUUID } from "node:crypto";
  * state names it the same way, and replaying a turn compares entity identity instead of masking it. An id the state
  * already holds is never reissued.
  */
-export function entityId(kernel: { readonly entitySeed?: string | null }, prefix: string, where: readonly unknown[], taken: (id: string) => boolean = () => false): string {
-  if (!kernel.entitySeed) return `${prefix}-${randomUUID()}`;
+export function entityId(kernel: { readonly entitySeed?: string | null } | undefined, prefix: string, where: readonly unknown[], taken: (id: string) => boolean = () => false): string {
+  // Previews build an apply context without the kernel (`runtime/apply-operation.ts`); they mint like play.
+  if (!kernel?.entitySeed) return `${prefix}-${randomUUID()}`;
   for (let n = 0; ; n++) {
     const hex = createHash("sha256").update(JSON.stringify([kernel.entitySeed, prefix, ...where, n])).digest("hex");
     const id = `${prefix}-${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
