@@ -53995,12 +53995,13 @@ the names it is shown by (`where.display_name` and `where.scene`, `placePages`: 
 scene's names hold; a person or thing whose name stands inside a place's name never does. The place's pages name the
 chapter most of them stand in (`placeChapter`), not their median; a tie keeps the kept chapter, else the earliest (live
 1030k du: the alias of a man inside a beach's name, then the median of pages over five chapters, put a search of the beach
-in a later chapter's event and refused its own pages as `chapter_absent`). The scene's graph pages are read by the same rule (no median). Resident chapters (§276.5) and the front
-matter never hold the party: they are read from anywhere, and a place merely mentioned there (a city named in the pregenerated
-investigators, live 1031 cs) does not move the party into them. A tie keeps the kept chapter, else the earliest that can hold
-the party; pages that all fall in resident chapters or the front matter keep the kept chapter, or, with none, the first chapter
-that can hold the party (`placeChapter`, `unplayedChapters`; live 1031 du: a cemetery on the background's p3 and the hook's p4
-went to the background; dg: graph pages split between the scenes and the advice went to the advice by their median). A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
+in a later chapter's event and refused its own pages as `chapter_absent`). The scene's graph pages are read by the same rule (no median). Every chapter counts. A tie keeps the kept
+chapter, else prefers a chapter that is neither resident (§276.5) nor the front matter, else the earliest (`placeChapter`,
+`secondaryChapters`; live 1031 du: a cemetery on the background's p3 and the hook's p4 went to the background; dg: graph pages
+split between the scenes and the advice went to the advice by their median). Resident verdicts only break ties: excluding
+resident chapters from the count (tried at f13f3f8ce) took story chapters that a verdict had judged resident out of play on
+other books (audit 1031: ad's woods, ch's farm, cs's largest chapter). Known issue: a place named mostly in a book's
+pregenerated-investigator pages still locates the party there (live 1031 cs). A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
 it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's pages decide; with no opening pages either,
 the first chapter. The chapter changes only when the party is in a book scene of another chapter. Telemetry:
 `lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `pointer`, `kept`, `opening`, `first`) and the

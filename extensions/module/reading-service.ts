@@ -35,7 +35,7 @@ import {SKELETON_VERSION} from './lean-skeleton.ts';
 import {cardBlocks, checkedCard} from './mechanics-card.ts';
 import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
 import {singleCall, normalName, titleOnlyFocus} from './lean-skeleton.ts';
-import {bookChapters, CHAPTER_NOTE, chapterAbsent, chapterView, inChapter, noteChapterModule, placeChapter, scopeSpans, unplayedChapters, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
+import {bookChapters, CHAPTER_NOTE, chapterAbsent, chapterView, inChapter, noteChapterModule, placeChapter, scopeSpans, secondaryChapters, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
 import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, placePages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
@@ -630,10 +630,10 @@ export class ReadingService implements ReadingBridge {
 		if (!this.chapterBooks.has(sha)) this.chapterBooks.set(sha, this.runtime().sourceInfo({ pdf: snapshot.pdf, cache: join(dirname(snapshot.pdf), "cache", "pages") }, signal)
 			.then(info => bookChapters(info as Row, pageCount)).catch(error => { this.chapterBooks.delete(sha); throw error; }));
 		const book = await this.chapterBooks.get(sha)!;
-		// §276.5 before §276.2: a resident chapter is read from anywhere, so it never says where the party is.
+		// §276.5 before §276.2: a resident chapter is read from anywhere, so a tie does not prefer it.
 		const residents = await this.residentChapters(mid, snapshot, book, signal);
-		const excluded = unplayedChapters(book.chapters, residents), kept = await this.keptChapter(campaign, mid);
-		const located = (pages: number[]) => placeChapter(book.chapters, pages, kept, excluded);
+		const secondary = secondaryChapters(book.chapters, residents), kept = await this.keptChapter(campaign, mid);
+		const located = (pages: number[]) => placeChapter(book.chapters, pages, kept, secondary);
 		let chapter: Chapter | undefined, resolved: ChapterScope["resolved"] = "scene";
 		const where = (await this.call("table.capsule", { _context_read: true }, campaign).catch(() => undefined))?.where ?? {};
 		const scene = String(where.scene ?? ""), shown = String(where.display_name ?? "");
@@ -652,7 +652,7 @@ export class ReadingService implements ReadingBridge {
 			const start = String((await this.call("module.status", { module_id: mid }, campaign).catch(() => undefined))?.opening?.start_scene ?? "");
 			chapter = located(await this.graphPages(campaign, start).catch(() => []));
 		}
-		if (!chapter) { resolved = "first"; chapter = book.chapters.find(row => !excluded.includes(row) && (row.first > 1 || book.chapters.length === 1)) ?? book.chapters[0]; }
+		if (!chapter) { resolved = "first"; chapter = book.chapters.find(row => row.first > 1 || book.chapters.length === 1) ?? book.chapters[0]; }
 		const before = await this.keptChapter(campaign, mid);
 		if (!before || before.first !== chapter.first || before.last !== chapter.last) {
 			await this.keepChapter(campaign, mid, chapter).catch(() => undefined);

@@ -66,33 +66,23 @@ export function anchorPage(pages: number[]): number | undefined {
 /**
  * §276.2: the chapter a place's (or a scene's) book pages stand in most: a place the book names on pages of several chapters
  * lives where most of them are, not at their median (live 1030k: a region named on pages 2-15 sent the party to a later
- * chapter). Only chapters that can hold the party count: `excluded` names the resident chapters (§276.5, read from anywhere
- * anyway) and the front matter, where a place is mentioned, not played (live 1031: a city named mostly in the pregenerated
- * investigators' chapter placed the party there). A tie keeps the chapter the party was in, else the earliest of them. Pages
- * that all fall in excluded chapters keep the party where it was, or, with nowhere yet, put it in the first chapter that can
- * hold it. No pages at all decide nothing.
+ * chapter; live 1031 dg: graph pages split between the scenes and the advice went to the advice). Every chapter counts. A tie
+ * keeps the chapter the party was in; else it prefers a chapter that is not `secondary` (the resident chapters and the front
+ * matter, read from anywhere anyway: live 1031 du's cemetery on the background's p3 and the hook's p4 went to the background),
+ * else the earliest. No pages decide nothing.
  */
-export function placeChapter(chapters: Chapter[], pages: number[], kept?: Chapter, excluded: Chapter[] = []): Chapter | undefined {
+export function placeChapter(chapters: Chapter[], pages: number[], kept?: Chapter, secondary: Chapter[] = []): Chapter | undefined {
 	const same = (a: Chapter, b: Chapter) => a.first === b.first && a.last === b.last;
-	const open = chapters.filter(chapter => !excluded.some(own => same(own, chapter)));
 	const count = new Map<Chapter, number>();
-	let anywhere = false;
-	for (const page of new Set(pages)) {
-		const chapter = chapterHolding(chapters, page);
-		if (!chapter) continue;
-		anywhere = true;
-		if (open.includes(chapter)) count.set(chapter, (count.get(chapter) ?? 0) + 1);
-	}
-	if (!anywhere) return undefined;
-	const keptHere = kept && chapters.find(chapter => same(chapter, kept));
-	if (!count.size) return keptHere ?? open[0] ?? chapters[0];
+	for (const page of new Set(pages)) { const chapter = chapterHolding(chapters, page); if (chapter) count.set(chapter, (count.get(chapter) ?? 0) + 1); }
+	if (!count.size) return undefined;
 	const most = Math.max(...count.values());
-	const tied = open.filter(chapter => count.get(chapter) === most);
-	return tied.find(chapter => keptHere && same(chapter, keptHere)) ?? tied[0];
+	const tied = chapters.filter(chapter => count.get(chapter) === most);
+	return tied.find(chapter => kept && same(chapter, kept)) ?? tied.find(chapter => !secondary.some(own => same(own, chapter))) ?? tied[0];
 }
 
-/** §276.2: the chapters that never hold the party: the front matter and the resident chapters. */
-export const unplayedChapters = (chapters: Chapter[], resident: Chapter[]): Chapter[] =>
+/** §276.2: the chapters a tie does not prefer: the front matter and the resident chapters. */
+export const secondaryChapters = (chapters: Chapter[], resident: Chapter[]): Chapter[] =>
 	chapters.filter(chapter => chapter.name === FRONT_MATTER || resident.some(own => own.first === chapter.first && own.last === chapter.last));
 
 export const chapterView = (scope: ChapterScope): Row => ({ name: scope.name, first: scope.first, last: scope.last, source: scope.source,
