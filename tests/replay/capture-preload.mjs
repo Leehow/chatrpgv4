@@ -29,7 +29,7 @@ const sha = (data) => createHash('sha256').update(data).digest('hex');
  * the execution, never of the game: this run's physical root, and the per-session prompt cache key.
  */
 const RUN_ROOT = CAPTURE ? dirname(CAPTURE) : null;
-export const TAPE_NORMALIZATION = ['run root path -> <run>', 'prompt_cache_key -> <session>', 'lane working directory in <cwd> -> <cwd>', 'host run ids run-<uuid> -> run-<id>', 'world_revision digests (they cover receipt wall-clock times) -> <revision>', 'mkdtemp scratch names attempt-XXXXXX -> attempt-<tmp>'];
+export const TAPE_NORMALIZATION = ['run root path -> <run>', 'prompt_cache_key -> <session>', 'lane working directory in <cwd> -> <cwd>', 'host run ids run-<uuid> -> run-<id>', 'world_revision digests (they cover receipt wall-clock times) -> <revision>', 'mkdtemp scratch names attempt-XXXXXX -> attempt-<tmp>', 'wall-clock stamps "at"/"*_at": ISO time -> <time>'];
 function normalizedBody(body, root) {
   if (body == null) return null;
   // A lane child's working directory is a fresh scratch path named by the clock (".../batch-1-<ms>").
@@ -42,6 +42,8 @@ function normalizedBody(body, root) {
   text = text.replace(/(world_revision\\?":\\?")[0-9a-f]{64}/g, '$1<revision>');
   // A lane's scratch directory made by mkdtemp ("…/attempt-7WZaBU/draft.json"), quoted back in tool errors.
   text = text.replace(/\/attempt-[A-Za-z0-9]{6}(?=\/)/g, '/attempt-<tmp>');
+  // Wall-clock stamps on receipts and records quoted into prompts (`"at":"2026-10-31T14:11:47Z"`), never game time.
+  text = text.replace(/((?:\\?")(?:at|[a-z_]+_at)\\?":\\?")\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g, '$1<time>');
   return text;
 }
 let sequence = 0;
@@ -117,8 +119,10 @@ function wrap(real, tape) {
     let request;
     try { request = await requestOf(input, init); } catch { return real(input, init); }
     const id = randomUUID(), local = isLocal(request.url), seq = sequence++;
-    write({ kind: 'request', id, seq, t: new Date().toISOString(), local, source: tape && !local ? 'tape' : 'network', ...request });
-    if (tape && !local) {
+    write({ kind: 'request', id, seq, t: new Date().toISOString(), local, source: tape && !local && !(request.method === 'GET' && /\/models$/.test(request.url.split('?')[0])) ? 'tape' : 'network', ...request });
+    // A provider's model catalogue (GET …/models) is not part of the game; whether it is fetched depends on a cache age.
+    const catalogue = request.method === 'GET' && /\/models$/.test(request.url.split('?')[0]);
+    if (tape && !local && !catalogue) {
       const candidates = tape.byKey.get(tapeKey(request.method, request.url, request.match_sha256)) ?? [];
       const hit = candidates.find(c => claim(c.request.id));
       if (!hit) {
