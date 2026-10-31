@@ -439,9 +439,10 @@ test('real committed memory owner reaches provider payload without private refs 
 });
 
 test('actual context and provider hooks recover material dropped with an oversized workspace',async t=>{
-  const oldFlag=process.env.PI_COC_JEV_PRESELECT,oldKey=process.env.TYPESAFE_API_KEY,oldBudget=process.env.PI_COC_REQUEST_BYTES,oldFetch=globalThis.fetch;
-  process.env.PI_COC_JEV_PRESELECT='1';process.env.TYPESAFE_API_KEY='mechanical-test-key';process.env.PI_COC_REQUEST_BYTES='4096';
-  t.after(()=>{for(const [key,value] of [['PI_COC_JEV_PRESELECT',oldFlag],['TYPESAFE_API_KEY',oldKey],['PI_COC_REQUEST_BYTES',oldBudget]])
+  const oldFlag=process.env.PI_COC_JEV_PRESELECT,oldKey=process.env.TYPESAFE_API_KEY,oldBudget=process.env.PI_COC_REQUEST_BYTES,oldFields=process.env.PI_COC_KP_FIELD_DEFAULTS,oldFetch=globalThis.fetch;
+  // A 4 KiB budget is this fixture's; the field index (on by default, about 2.3 KiB) would leave no room for the packet it measures.
+  process.env.PI_COC_JEV_PRESELECT='1';process.env.TYPESAFE_API_KEY='mechanical-test-key';process.env.PI_COC_REQUEST_BYTES='4096';process.env.PI_COC_KP_FIELD_DEFAULTS='0';
+  t.after(()=>{for(const [key,value] of [['PI_COC_JEV_PRESELECT',oldFlag],['TYPESAFE_API_KEY',oldKey],['PI_COC_REQUEST_BYTES',oldBudget],['PI_COC_KP_FIELD_DEFAULTS',oldFields]])
     if(value===undefined)delete process.env[key];else process.env[key]=value;globalThis.fetch=oldFetch;});
   globalThis.fetch=async(_url,options)=>{return Response.json(supportWire(JSON.parse(options.body)));};
   const big=index=>({...archive,locator:`scene:Bulk-${index}`,identity:`bulk-${index}`,entity_refs:[`Bulk-${index}`],

@@ -1,10 +1,10 @@
 /**
- * Prefetch (experiment, `PI_COC_KP_PREFETCH=1`, off by default): before the Keeper's first call the host asks the book the
+ * Prefetch (on by default since 1030g/h, `PI_COC_KP_PREFETCH=0` turns it off): before the Keeper's first call the host asks the book the
  * same source answer the Keeper's own first lookup usually asks, so that call's round trip is saved (1029 analysis: the v4
  * Grok Keeper's first call was a look-up in 72 of 90 turns, about 10.8 s each). Bounded: at most `PREFETCH_FOCI` foci, a
  * wait of at most `PREFETCH_WAIT_MS` at the first model step, and the carried views' own page and byte caps.
  */
-export const prefetchEnabled=():boolean=>process.env.PI_COC_KP_PREFETCH==='1';
+export const prefetchEnabled=():boolean=>process.env.PI_COC_KP_PREFETCH!=='0';
 export const PREFETCH_FOCI=2;
 export const PREFETCH_WAIT_MS=3000;
 /** The book pages one turn's prefetch may carry, whole pages only (about 4k tokens). */

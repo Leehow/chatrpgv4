@@ -1,16 +1,16 @@
 /**
- * Ready answers (experiment, `PI_COC_KP_READY_ANSWERS=1`, off by default): the host hands the Keeper the answers it can
+ * Ready answers (on by default since 1030g/h, `PI_COC_KP_READY_ANSWERS=0` turns them off): the host hands the Keeper the answers it can
  * compute from committed state, so the Keeper stops re-deriving them (1029 analysis: about a quarter of MiniMax Keeper
  * thinking went to reference issuance and field format, more to presence, holdings and clock arithmetic). Read on each
  * call, so a test can switch it per case.
  */
-export const readyAnswers=():boolean=>process.env.PI_COC_KP_READY_ANSWERS==='1';
+export const readyAnswers=():boolean=>process.env.PI_COC_KP_READY_ANSWERS!=='0';
 /**
- * Field defaults (experiment, `PI_COC_KP_FIELD_DEFAULTS=1`, with ready answers): the ready block also carries the minimal
+ * Field defaults (on by default since 1030g/h, `PI_COC_KP_FIELD_DEFAULTS=0` turns them off; with ready answers): the ready block also carries the minimal
  * field table of the packet commands this turn can use, and what the host fills when they are left out (1029z: field and
  * reference format was still 21% of MiniMax Keeper thinking with ready answers on, in every turn).
  */
-export const fieldDefaults=():boolean=>process.env.PI_COC_KP_FIELD_DEFAULTS==='1';
+export const fieldDefaults=():boolean=>process.env.PI_COC_KP_FIELD_DEFAULTS!=='0';
 /**
  * The field index, generated from the packet schema itself so it never leaves a command out (1030c/d review: the hand-written
  * table listed seven commands and no route for objects and documents). One row per command, interaction and content

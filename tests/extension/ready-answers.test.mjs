@@ -15,7 +15,7 @@ const withFlag=(value,run)=>{const before=process.env.PI_COC_KP_READY_ANSWERS;if
 
 test('a destination for a newcomer seats the newcomer first and names them by their seat, flag or not',()=>{
  const packet={version:4,commands:[{kind:'npc',actor:'new_1',to:'away',reason:'Leaves after answering.'},{kind:'walk_on',slot:'new_1',label:'the shop attendant',reason:'On shift.'}]};
- for(const flag of ['1',undefined]){
+ for(const flag of ['1','0']){
   const effects=withFlag(flag,()=>compileTurnPacket(packet)).effects;
   assert.deepEqual(effects.map(row=>[row.name,!!row.walk_on]),[['the shop attendant',true],['the shop attendant',false]]);
  }
@@ -50,7 +50,7 @@ test('a packet array sent as JSON text is that array, only with ready answers',(
  const raw={version:4,commands:JSON.stringify([{kind:'scene',service:'open',crowd:'quiet'}])};
  const on=withFlag('1',()=>normalizeTurnPacketArguments(raw));
  assert.ok(Array.isArray(on.args.commands));assert.deepEqual(on.arrayTextFields,['commands']);
- const off=withFlag(undefined,()=>normalizeTurnPacketArguments(raw));
+ const off=withFlag('0',()=>normalizeTurnPacketArguments(raw));
  assert.equal(typeof off.args.commands,'string');
  const junk=withFlag('1',()=>normalizeTurnPacketArguments({version:4,commands:'not json'}));
  assert.equal(junk.args.commands,'not json','anything else stays for the refusal');
@@ -62,7 +62,7 @@ test('one scene per stop keeps the later assessment; a journey repeated as time 
  const on=withFlag('1',()=>normalizeTurnPacketArguments(raw));
  assert.deepEqual(on.args.commands.map(c=>[c.kind,c.service??c.minutes??c.to]),[['scene','closed'],['place','Harbour'],['time',15],['scene','open']]);
  assert.equal(on.sceneRepairs,2);
- const off=withFlag(undefined,()=>normalizeTurnPacketArguments(raw));
+ const off=withFlag('0',()=>normalizeTurnPacketArguments(raw));
  assert.equal(off.args.commands.length,6,'off: unchanged');
 });
 
@@ -95,5 +95,8 @@ test('with field defaults the ready block carries the field index generated from
   assert.match(fields.apply_route,/apply/);assert.ok(fields.host_fills);
   assert.ok(Buffer.byteLength(JSON.stringify(fields))<3072,'compact');
  }finally{if(before===undefined)delete process.env.PI_COC_KP_FIELD_DEFAULTS;else process.env.PI_COC_KP_FIELD_DEFAULTS=before;}
- assert.equal(readyBlock({where:{},present:[]}).fields,undefined,'off: no table');
+ assert.ok(readyBlock({where:{},present:[]}).fields,'on by default');
+ process.env.PI_COC_KP_FIELD_DEFAULTS='0';
+ try{assert.equal(readyBlock({where:{},present:[]}).fields,undefined,'off: no table');}
+ finally{if(before===undefined)delete process.env.PI_COC_KP_FIELD_DEFAULTS;else process.env.PI_COC_KP_FIELD_DEFAULTS=before;}
 });

@@ -17,6 +17,9 @@ import {createHybridEngine,checkedAdmission} from "./hybrid-engine-fixture.mjs";
 import { CARRIED_PENDING_SCENE_HEAD, CARRIED_SCENE_TEXT_HEAD, CARRIED_SCENE_RECORD_HEAD, SCENE_TEXT_VIEW_BYTES, readCarriedViews } from "../../runtime/jev/carried-views.ts";
 import { createRuntime } from "../../runtime/host.ts";
 import { ReadingService } from "../../extensions/module/reading-service.ts";
+// Prefetch is on by default; this suite's instant fake Keeper answers before a prefetched book answer lands, which the
+// live Keeper never does (0 stale-material refusals in the 1030 full arms), so it reads the book on the Keeper's own call.
+process.env.PI_COC_KP_PREFETCH??='0';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "test-camp";

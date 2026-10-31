@@ -17,6 +17,9 @@ import {turnPacketParameterSchema,TURN_PACKET_GUIDANCE} from '../../runtime/turn
 import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {openTable} from './harness.mjs';
 import {RpcClient,ROOT} from '../integration/support.ts';
+// Prefetch is on by default; this suite's instant fake Keeper answers before a prefetched book answer lands, which the
+// live Keeper never does (0 stale-material refusals in the 1030 full arms), so it reads the book on the Keeper's own call.
+process.env.PI_COC_KP_PREFETCH??='0';
 
 const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',
   EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,

@@ -8,6 +8,10 @@ import {createHybridEngine} from '../../runtime/jev/hybrid-engine.ts';
 import {openTable} from './harness.mjs';
 import {RpcClient} from '../integration/support.ts';
 import {ContinuousTurn} from '../../runtime/jev/continuous-turn.ts';
+// Prefetch is on by default; a book answer it lands during this suite's instant run moves the source revision the compiled
+// continuous-turn operation read, so the operation fails as continuous_state_changed. Live runs never reached that
+// execution (1030g/h: deferred or no bound candidate in every turn); this suite tests the operation, so prefetch is off.
+process.env.PI_COC_KP_PREFETCH??='0';
 
 const env={PI_COC_LOOP_ENGINE:'hybrid-v1',PI_COC_TURN_PACKET_PROTOTYPE:'1',PI_COC_PACKET_PRESCREEN:'1',
  PI_COC_JEV_PRESELECT:'0',PI_COC_MATERIAL_SCREEN:'0',EXT_JEV_APIKEY:undefined,TYPESAFE_API_KEY:undefined,

@@ -27,6 +27,9 @@ import { openTable } from "./harness.mjs";
 import { createHybridEngine } from "./hybrid-engine-fixture.mjs";
 import { CARRIED_PENDING_PERSON_HEAD, CARRIED_PERSON_RECORD_HEAD, CARRIED_PERSON_TEXT_HEAD } from "../../runtime/jev/carried-views.ts";
 import { withPersonStatements } from "./person-statements.mjs";
+// Prefetch is on by default; this suite's instant fake Keeper answers before a prefetched book answer lands, which the
+// live Keeper never does (0 stale-material refusals in the 1030 full arms), so it reads the book on the Keeper's own call.
+process.env.PI_COC_KP_PREFETCH??='0';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CAMPAIGN = "test-camp";

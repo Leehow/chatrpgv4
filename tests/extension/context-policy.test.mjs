@@ -370,10 +370,11 @@ test('§184.2 and §184.3 on the hook: the single-loop engine sends the capsule 
         const capsule = JSON.parse(projected.messages.find(message => message.customType === 'coc-capsule').content);
         if (engine === 'legacy') {
             assert.deepEqual(kinds, [api.BRIEF_TYPE, api.HISTORY_TYPE, 'user', 'coc-capsule', 'assistant', 'toolResult'], 'legacy keeps today\'s order');
-            assert.deepEqual(Object.keys(capsule), ['turn', 'recent', 'style', 'mods'], 'and the kernel\'s section order');
+            // Ready answers (on by default) ride last: they change every turn, so they never precede a stable section.
+            assert.deepEqual(Object.keys(capsule), ['turn', 'recent', 'style', 'mods', ...(process.env.PI_COC_KP_READY_ANSWERS === '0' ? [] : ['ready'])], 'and the kernel\'s section order');
         } else {
             assert.deepEqual(kinds, [api.BRIEF_TYPE, 'coc-capsule', api.HISTORY_TYPE, 'user', 'assistant', 'toolResult']);
-            assert.deepEqual(Object.keys(capsule), ['mods', 'style', 'recent', 'turn'], 'the stable sections first');
+            assert.deepEqual(Object.keys(capsule), ['mods', 'style', ...(process.env.PI_COC_KP_READY_ANSWERS === '0' ? [] : ['ready']), 'recent', 'turn'], 'the stable sections first');
         }
         const row = t.rows.findLast(entry => entry.lane === 'context' && entry.event === 'request');
         assert.equal(row.at, new Date(row.at).toISOString(), `${engine}: at is an ISO time`);

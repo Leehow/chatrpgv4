@@ -12,6 +12,9 @@ import {createFinalOutputOwner} from '../../extensions/kernel/final-output.ts';
 import {importSource,RpcClient,rpcCommand} from '../integration/support.ts';
 import {writeSourceMetadata} from '../integration/module-support.ts';
 import {JEV_MODEL} from '../../runtime/jev/question-packing.ts';
+// Prefetch is on by default; this suite's instant fake Keeper answers before a prefetched book answer lands, which the
+// live Keeper never does (0 stale-material refusals in the 1030 full arms), so it reads the book on the Keeper's own call.
+process.env.PI_COC_KP_PREFETCH??='0';
 
 const root=resolve(import.meta.dirname,'../..');
 const plan={version:1,materials:[
@@ -1549,6 +1552,10 @@ test('an opening html fence before the public marker needs no correction inferen
 for(const renameGrowth of [false,true])test('the next native request keeps six results ahead of a duplicated capsule and static brief'+(renameGrowth?' after handle expansion':''),async t=>{
   const {installContextPolicy}=await importSource('extensions/table/context-runtime.ts');
   const measure=await importSource('extensions/table/context-policy.ts');
+  // The fixture is sized to the byte ceiling; the ready block and field index (on by default) are not in its reserve.
+  const flags=['PI_COC_KP_READY_ANSWERS','PI_COC_KP_FIELD_DEFAULTS'].map(key=>[key,process.env[key]]);
+  for(const [key] of flags)process.env[key]='0';
+  t.after(()=>{for(const [key,value] of flags)if(value===undefined)delete process.env[key];else process.env[key]=value;});
   const engine=createHybridEngine({env:{...process.env,PI_COC_JEV_PRESELECT:'0'},decision:checkedRecovery});
   let expectedResults,expectedCalls,sourceBefore,secondRequest,thirdRequest;
   const telemetry=[];
