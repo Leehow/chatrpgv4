@@ -35,8 +35,8 @@ import {SKELETON_VERSION} from './lean-skeleton.ts';
 import {cardBlocks, checkedCard} from './mechanics-card.ts';
 import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
 import {singleCall, normalName, titleOnlyFocus} from './lean-skeleton.ts';
-import {anchorPage, bookChapters, CHAPTER_NOTE, chapterAbsent, chapterHolding, chapterView, inChapter, noteChapterModule, scopeSpans, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
-import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
+import {anchorPage, bookChapters, CHAPTER_NOTE, chapterAbsent, chapterHolding, chapterView, inChapter, noteChapterModule, placeChapter, scopeSpans, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
+import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, placePages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
 import {readNeedReceipt,type NeedReceipt} from '../../runtime/jev/source-need-reads.ts';
@@ -635,9 +635,10 @@ export class ReadingService implements ReadingBridge {
 		const where = (await this.call("table.capsule", { _context_read: true }, campaign).catch(() => undefined))?.where ?? {};
 		const scene = String(where.scene ?? ""), shown = String(where.display_name ?? "");
 		chapter = at(anchorPage(await this.graphPages(campaign, scene).catch(() => [])));
-		// Under lean reading the graph holds few places: the pointer index's pages for the names the scene is shown by.
+		// Under lean reading the graph holds few places: the pointer index's pages for the place the scene is shown by.
 		if (!chapter) try { const skeleton = JSON.parse(await readFile(skeletonPath(this.deps.home, sha), "utf8"));
-			chapter = at(anchorPage(answerPages(skeleton, `${shown}\n${scene}`))); } catch { /* no index yet */ }
+			chapter = placeChapter(book.chapters, placePages(skeleton, `${shown}\n${scene}`), await this.keptChapter(campaign, mid));
+			if (chapter) resolved = "pointer"; } catch { /* no index yet */ }
 		if (!chapter) {
 			resolved = "kept";
 			const kept = await this.keptChapter(campaign, mid);

@@ -53985,10 +53985,15 @@ Pages before the first chapter are the front matter, a chapter of their own.
 The host resolves it at each book read from the party's scene: the scene's book pages (`table.lookup kind=module` of the
 capsule's `where.scene`, its `original_pages`), anchored by `anchorPage` (§182.3), name the chapter that holds the anchor.
 Under lean reading the graph holds few places, so a scene the graph has no pages for is looked up in the pointer index by
-the names it is shown by (`where.display_name` and `where.scene`, `answerPages`: spelling only). A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
+the names it is shown by (`where.display_name` and `where.scene`, `placePages`: spelling only). Only entries the index kinds
+`location` place the party (entries without kinds, from older indexes, still count), the most specific (longest) name the
+scene's names hold; a person or thing whose name stands inside a place's name never does. The place's pages name the
+chapter most of them stand in (`placeChapter`), not their median; a tie keeps the kept chapter, else the earliest (live
+1030k du: the alias of a man inside a beach's name, then the median of pages over five chapters, put a search of the beach
+in a later chapter's event and refused its own pages as `chapter_absent`). A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
 it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's pages decide; with no opening pages either,
 the first chapter. The chapter changes only when the party is in a book scene of another chapter. Telemetry:
-`lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `kept`, `opening`, `first`) and the
+`lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `pointer`, `kept`, `opening`, `first`) and the
 chapter source (`bookmarks`, `headings`, `none`).
 
 ### 276.3 Every read is cut to it

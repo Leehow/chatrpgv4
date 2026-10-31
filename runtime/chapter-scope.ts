@@ -11,7 +11,7 @@ type Row = Record<string, any>;
 export type ChapterSource = 'bookmarks' | 'headings' | 'none';
 export interface Chapter { name: string; first: number; last: number }
 /** How the current chapter was found (§276.2). */
-export type ChapterResolution = 'scene' | 'kept' | 'opening' | 'first';
+export type ChapterResolution = 'scene' | 'pointer' | 'kept' | 'opening' | 'first';
 /**
  * The current chapter and (§276.5) the book's resident chapters, read from any chapter: `resident` never holds the current
  * chapter itself.
@@ -61,6 +61,19 @@ export const scopeSpans = (scope: Chapter | ChapterScope): Chapter[] => [{ name:
 export function anchorPage(pages: number[]): number | undefined {
 	const distinct = [...new Set(pages.filter(page => Number.isSafeInteger(page) && page >= 1))].sort((a, b) => a - b);
 	return distinct.length ? distinct[Math.floor(distinct.length / 2)] : undefined;
+}
+
+/**
+ * §276.2: the chapter a place's book pages stand in most: a place the book names on pages of several chapters lives where
+ * most of them are, not at their median (live 1030k: a region named on pages 2-15 sent the party to a later chapter). A tie
+ * keeps the chapter the party was in, else the earliest of them.
+ */
+export function placeChapter(chapters: Chapter[], pages: number[], kept?: Chapter): Chapter | undefined {
+	const count = new Map<Chapter, number>();
+	for (const page of new Set(pages)) { const chapter = chapterHolding(chapters, page); if (chapter) count.set(chapter, (count.get(chapter) ?? 0) + 1); }
+	const most = Math.max(0, ...count.values());
+	const tied = chapters.filter(chapter => most > 0 && count.get(chapter) === most);
+	return tied.find(chapter => kept && chapter.first === kept.first && chapter.last === kept.last) ?? tied[0];
 }
 
 export const chapterView = (scope: ChapterScope): Row => ({ name: scope.name, first: scope.first, last: scope.last, source: scope.source,

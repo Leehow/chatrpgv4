@@ -110,7 +110,26 @@ test('§276.2: a scene the graph has no pages for is found in the pointer index 
  state.shown='场景 1：营地';
  await mkdir(join(root,'source-skeletons'),{recursive:true});
  await writeFile(join(root,'source-skeletons',`${SHA}.json`),JSON.stringify({complete:true,entities:[{name:'营地',aliases:[],blocks:['b4-0-x','b4-1-x'],pages:[4]}]}));
- assert.deepEqual([(await reading.chapterScope('blood-road','c1')).name,(await reading.chapterScope('blood-road','c1')).resolved],['Intro','scene']);
+ assert.deepEqual([(await reading.chapterScope('blood-road','c1')).name,(await reading.chapterScope('blood-road','c1')).resolved],['Intro','pointer']);
+ reading.dispose();
+}));
+
+test('§276.2: only an indexed place places the party, the most specific one, in the chapter most of its pages stand in',async()=>lean(async()=>{
+ // live 1030k du: a man's short alias inside a beach's name, and the median of pages spread over several chapters, put
+ // the party at a later chapter's event while it searched the beach.
+ const root=playtestScratch('chapter-scope','place-');
+ const {reading,state}=await service(root,{scene:'beach-docks',graph:{}});
+ state.shown='马丁滩码头';
+ await mkdir(join(root,'source-skeletons'),{recursive:true});
+ await writeFile(join(root,'source-skeletons',`${SHA}.json`),JSON.stringify({complete:true,entities:[
+  {name:'马丁·海沃森',aliases:['马丁'],kinds:['npc'],blocks:[],pages:[3,10,11,12]},
+  {name:'马丁滩',aliases:[],kinds:['location'],blocks:[],pages:[2,3,4,6,7,8]},
+  {name:'码头',aliases:[],kinds:['location'],blocks:[],pages:[4,8]}]}));
+ assert.deepEqual([(await reading.chapterScope('blood-road','c1')).name,(await reading.chapterScope('blood-road','c1')).resolved],['Diner','pointer'],
+  'the beach, not the man; most of its pages are in Diner');
+ assert.deepEqual(api.placeChapter([{name:'Intro',first:3,last:5},{name:'Diner',first:6,last:12}],[4,8],{name:'Intro',first:3,last:5}).name,'Intro',
+  'a tie keeps the chapter the party was in');
+ assert.deepEqual(api.placeChapter([{name:'Intro',first:3,last:5},{name:'Diner',first:6,last:12}],[4,8]).name,'Intro','else the earliest');
  reading.dispose();
 }));
 

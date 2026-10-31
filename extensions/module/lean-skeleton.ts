@@ -448,6 +448,24 @@ export function titleOnlyFocus(focus: string, title: string): boolean {
 	return !rest;
 }
 
+/**
+ * §276.2: the book pages of the place a scene is shown by: the indexed place whose name or alias the scene's names hold, the
+ * most specific (longest) one when several do. Only entries the index kinds a location; a person or thing named inside a
+ * place's name (a beach called after a man) never places the party. Entries without kinds (older indexes) still count.
+ */
+export function placePages(skeleton: Row, asked: string): number[] {
+	const key = normalName(asked);
+	let best: { length: number; pages: number[] } | undefined;
+	for (const entity of skeleton?.entities ?? []) {
+		if (Array.isArray(entity.kinds) && !entity.kinds.includes("location")) continue;
+		for (const name of [entity.name, ...(entity.aliases ?? [])]) {
+			const own = typeof name === "string" ? normalName(name) : "";
+			if ([...own].length < 2 || !key.includes(own) || (best && best.length >= [...own].length)) continue;
+			best = { length: [...own].length, pages: (entity.pages ?? []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1).map(Number) };
+		}
+	}
+	return best?.pages ?? [];
+}
 export function answerPages(skeleton: Row, asked: string, limit = 4): number[] {
 	const key = normalName(asked), out: number[] = [];
 	const add = (page: unknown) => { if (Number.isSafeInteger(page) && Number(page) >= 1 && !out.includes(Number(page)) && out.length < limit) out.push(Number(page)); };
