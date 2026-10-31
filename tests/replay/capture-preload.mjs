@@ -16,7 +16,7 @@
  * `transport` row, so a request that went around fetch shows up as uncovered instead of silently missing.
  */
 import { appendFileSync, mkdirSync, openSync, closeSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import diagnostics from 'node:diagnostics_channel';
 
@@ -24,6 +24,21 @@ const CAPTURE = process.env.PI_COC_REPLAY_CAPTURE, TAPE = process.env.PI_COC_REP
 const SECRET_HEADER = /authorization|api[-_]?key|token|secret|cookie|session|signature|credential/i;
 const LOCAL = /^(localhost|127\.|\[?::1\]?$|0\.0\.0\.0)/;
 const sha = (data) => createHash('sha256').update(data).digest('hex');
+/**
+ * What a tape is matched on: the body with the fields listed here replaced, and nothing else. Each is an identity of
+ * the execution, never of the game: this run's physical root, and the per-session prompt cache key.
+ */
+const RUN_ROOT = CAPTURE ? dirname(CAPTURE) : null;
+export const TAPE_NORMALIZATION = ['run root path -> <run>', 'prompt_cache_key -> <session>', 'lane working directory in <cwd> -> <cwd>', 'host run ids run-<uuid> -> run-<id>'];
+function normalizedBody(body, root) {
+  if (body == null) return null;
+  // A lane child's working directory is a fresh scratch path named by the clock (".../batch-1-<ms>").
+  let text = body.replace(/<cwd>[^<]*<\/cwd>/g, '<cwd></cwd>');
+  if (root) text = text.split(root).join('<run>');
+  text = text.replace(/"prompt_cache_key":"[^"]*"/g, '"prompt_cache_key":"<session>"');
+  text = text.replace(/run-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, 'run-<id>');
+  return text;
+}
 let sequence = 0;
 
 function write(row) {
@@ -48,7 +63,8 @@ async function requestOf(input, init) {
   else if (body instanceof URLSearchParams) { body = body.toString(); form = 'utf8'; }
   else if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) { body = Buffer.from(body instanceof ArrayBuffer ? body : body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)).toString('base64'); form = 'base64'; }
   else if (body != null) { form = 'unsupported:' + (body?.constructor?.name ?? typeof body); body = undefined; }
-  return { url, method, headers, body: body ?? null, form, body_sha256: body == null ? null : sha(body) };
+  const normalized = form === 'utf8' ? normalizedBody(body, RUN_ROOT) : body;
+  return { url, method, headers, body: body ?? null, form, body_sha256: body == null ? null : sha(body), match_sha256: normalized == null ? null : sha(normalized) };
 }
 const isLocal = (url) => { try { const u = new URL(url); return u.protocol === 'file:' || u.protocol === 'data:' || LOCAL.test(u.hostname); } catch { return true; } };
 
@@ -58,15 +74,19 @@ function loadTape(dir) {
   for (const name of readdirSync(dir).filter(n => /^requests-\d+\.jsonl$/.test(n)))
     for (const line of readFileSync(join(dir, name), 'utf8').split('\n')) {
       if (!line) continue; let row; try { row = JSON.parse(line); } catch { continue; }
-      if (row.kind === 'request' && !row.local) requests.set(row.id, row);
+      if (row.kind === 'request' && !row.local) { if (row.form === 'utf8' && row.body != null) { row.normalized = normalizedBody(row.body, dirname(dir)); row.match_sha256 = sha(row.normalized); } requests.set(row.id, row); }
       else if (row.kind === 'response') responses.set(row.id, row);
       else if (row.kind === 'response_end') ends.set(row.id, row);
     }
   const byKey = new Map();
   for (const row of [...requests.values()].sort((a, b) => a.t.localeCompare(b.t))) {
-    if (!responses.has(row.id) || !ends.get(row.id)?.complete) continue;
-    const key = tapeKey(row.method, row.url, row.body_sha256);
-    byKey.set(key, [...(byKey.get(key) ?? []), { request: row, response: responses.get(row.id), end: ends.get(row.id) }]);
+    // A body the consumer stopped reading before its end (its process exited) is still exactly what was read.
+    const end = ends.get(row.id);
+    // A request its caller cancelled before any answer is replayed as the same wait, ended by the caller's abort.
+    const cancelled = !responses.has(row.id) && end && !end.complete;
+    if (!cancelled && (!responses.has(row.id) || !(end?.complete || end?.consumer_stopped))) continue;
+    const key = tapeKey(row.method, row.url, row.match_sha256 ?? row.body_sha256);
+    byKey.set(key, [...(byKey.get(key) ?? []), { request: row, response: responses.get(row.id) ?? null, end, cancelled: !!cancelled }]);
   }
   return { byKey, requests: [...requests.values()] };
 }
@@ -79,7 +99,7 @@ function nearest(tape, request) {
   let best = null;
   for (const row of tape.requests) {
     if (tapeKey(row.method, row.url, '') !== tapeKey(request.method, request.url, '') || row.body == null || request.body == null) continue;
-    let i = 0; const a = row.body, b = request.body, n = Math.min(a.length, b.length);
+    let i = 0; const a = row.normalized ?? row.body, b = normalizedBody(request.body, RUN_ROOT), n = Math.min(a.length, b.length);
     while (i < n && a.charCodeAt(i) === b.charCodeAt(i)) i++;
     if (!best || i > best.common_prefix) best = { id: row.id, common_prefix: i, recorded_length: a.length, sent_length: b.length };
   }
@@ -94,7 +114,7 @@ function wrap(real, tape) {
     const id = randomUUID(), local = isLocal(request.url), seq = sequence++;
     write({ kind: 'request', id, seq, t: new Date().toISOString(), local, source: tape && !local ? 'tape' : 'network', ...request });
     if (tape && !local) {
-      const candidates = tape.byKey.get(tapeKey(request.method, request.url, request.body_sha256)) ?? [];
+      const candidates = tape.byKey.get(tapeKey(request.method, request.url, request.match_sha256)) ?? [];
       const hit = candidates.find(c => claim(c.request.id));
       if (!hit) {
         const near = nearest(tape, request);
@@ -104,11 +124,28 @@ function wrap(real, tape) {
         write({ kind: 'response_end', id, t: new Date().toISOString(), complete: true, form: 'utf8', body, bytes: body.length });
         return new Response(body, { status: 400, headers: { 'content-type': 'application/json' } });
       }
+      if (hit.cancelled) {
+        write({ kind: 'response_end', id, t: new Date().toISOString(), complete: false, tape: hit.request.id, error: 'replayed cancellation: waiting for the caller to abort' });
+        const signal = init?.signal ?? input?.signal;
+        return new Promise((_, reject) => {
+          const timer = setTimeout(() => reject(new TypeError('replay tape: a recorded cancellation was never cancelled')), 300000);
+          signal?.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason ?? new DOMException('aborted', 'AbortError')); }, { once: true });
+        });
+      }
       const headers = { ...hit.response.headers }; delete headers['content-encoding']; delete headers['content-length']; delete headers['transfer-encoding'];
       write({ kind: 'response', id, t: new Date().toISOString(), status: hit.response.status, headers, tape: hit.request.id });
       const chunks = (hit.end.chunks ?? []).map(c => Buffer.from(c, 'base64'));
       write({ kind: 'response_end', id, t: new Date().toISOString(), complete: true, tape: hit.request.id, bytes: chunks.reduce((n, c) => n + c.length, 0) });
-      const stream = new ReadableStream({ start(controller) { for (const c of chunks) controller.enqueue(new Uint8Array(c)); controller.close(); } });
+      // The recorded latency is kept (PI_COC_REPLAY_TAPE_TIMING=0 drops it): the host races background work against the
+      // Keeper's first request, so answering instantly would change which material is ready, not only how fast.
+      const timed = process.env.PI_COC_REPLAY_TAPE_TIMING !== '0', since = Date.parse(hit.request.t);
+      const head = timed ? Math.max(0, Date.parse(hit.response.t) - since) : 0, tail = timed ? Math.max(head, Date.parse(hit.end.t) - since) : 0;
+      const signal = init?.signal ?? input?.signal, wait = (ms) => new Promise((done, fail) => { const timer = setTimeout(done, ms); signal?.addEventListener('abort', () => { clearTimeout(timer); fail(signal.reason ?? new DOMException('aborted', 'AbortError')); }, { once: true }); });
+      await wait(head);
+      const stream = new ReadableStream({ async start(controller) {
+        try { for (const [i, c] of chunks.entries()) { if (tail > head && chunks.length > 1) await wait((tail - head) / chunks.length); controller.enqueue(new Uint8Array(c)); if (i === chunks.length - 1) controller.close(); } if (!chunks.length) controller.close(); }
+        catch (error) { controller.error(error); }
+      } });
       return new Response(stream, { status: hit.response.status, statusText: hit.response.status_text ?? '', headers });
     }
     let response;
@@ -117,7 +154,7 @@ function wrap(real, tape) {
     write({ kind: 'response', id, t: new Date().toISOString(), status: response.status, status_text: response.statusText, headers: headerRows(response.headers) });
     if (!response.body || local) { write({ kind: 'response_end', id, t: new Date().toISOString(), complete: true, chunks: [], bytes: 0, body_unrecorded: local && !!response.body }); return response; }
     const chunks = []; let done = false;
-    const finish = (complete, error) => { if (done) return; done = true; const all = Buffer.concat(chunks); write({ kind: 'response_end', id, t: new Date().toISOString(), complete, error, bytes: all.length, body_sha256: sha(all), chunks: chunks.map(c => c.toString('base64')) }); };
+    const finish = (complete, error, consumerStopped = false) => { if (done) return; done = true; pending.delete(finish); const all = Buffer.concat(chunks); write({ kind: 'response_end', id, t: new Date().toISOString(), complete, error, consumer_stopped: consumerStopped, bytes: all.length, body_sha256: sha(all), chunks: chunks.map(c => c.toString('base64')) }); };
     const body = response.body.pipeThrough(new TransformStream({
       transform(chunk, controller) { chunks.push(Buffer.from(chunk)); controller.enqueue(chunk); },
       flush() { finish(true); },
@@ -144,5 +181,5 @@ if (CAPTURE || TAPE) {
     const origin = String(request?.origin ?? ''); if (!origin || isLocal(origin)) return;
     write({ kind: 'transport', t: new Date().toISOString(), method: request.method, origin, path: String(request.path ?? '').split('?')[0] });
   });
-  process.on('exit', () => { for (const finish of pending) finish(false, 'process exited before the response body ended'); });
+  process.on('exit', () => { for (const finish of pending) finish(false, 'process exited before the response body ended', true); });
 }

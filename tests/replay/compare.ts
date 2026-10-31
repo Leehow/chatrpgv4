@@ -15,10 +15,18 @@ import type { Row } from './checkpoint.ts';
 
 /** Wall-clock fields: when something happened on the host, never what happened in the game. */
 export const VOLATILE = new Set(['at', 'opened_at', 'closed_at', 'created_at', 'updated_at', 'started_at', 'ended_at', 'recorded_at', 'written_at', 'durations', 'timings', '_recv_at', 'ts', 'wall_ms', 'elapsed_ms']);
+/**
+ * Execution identity in the kernel's records: the sidecar commit hash (it covers the commit time), host run and attempt
+ * ids, and digests computed over them (delivery packet and binding, call parameter digests, the world revision, whose
+ * world.json is compared on its own). Masked only in the turn record; listed by name when they differ.
+ */
+export const EXECUTION_IDENTITY = new Set(['commit', 'attempt_id', 'delivery_id', 'packet', 'binding', 'params_sha256', 'world_revision']);
+const RUN_ID = /run-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
-export function normalize(value: any): any {
-  if (Array.isArray(value)) return value.map(normalize);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().filter(k => !VOLATILE.has(k)).map(k => [k, normalize(value[k])]));
+export function normalize(value: any, mask: Set<string> = new Set()): any {
+  if (Array.isArray(value)) return value.map(v => normalize(v, mask));
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().filter(k => !VOLATILE.has(k) && !mask.has(k)).map(k => [k, normalize(value[k], mask)]));
+  if (typeof value === 'string' && mask.size) return value.replace(RUN_ID, 'run-<id>');
   return value;
 }
 const readJson = (path: string) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; } };
@@ -31,7 +39,7 @@ export function stateDigest(workspace: string, campaign: string) {
   for (const name of ['world.json', 'turn.json', 'npc-ledger.json', 'epithets.json', 'first-sight.json', 'npc-journal.json', 'campaign.json']) add(name, readJson(join(dir, name)));
   for (const name of existsSync(join(dir, 'party')) ? readdirSync(join(dir, 'party')).sort() : []) add('party/' + name, readJson(join(dir, 'party', name)));
   for (const name of ['events.jsonl', 'transcript.jsonl']) add(name, readJsonl(join(dir, name)));
-  for (const name of existsSync(join(dir, 'turns')) ? readdirSync(join(dir, 'turns')).sort() : []) add('turns/' + name, readJson(join(dir, 'turns', name)));
+  for (const name of existsSync(join(dir, 'turns')) ? readdirSync(join(dir, 'turns')).sort() : []) { const record = readJson(join(dir, 'turns', name)); add('turns/' + name, record === null ? null : normalize(record, EXECUTION_IDENTITY)); }
   return { files, digest: sha(JSON.stringify(files)) };
 }
 
@@ -67,7 +75,7 @@ export function captureSummary(dir: string) {
   const uncovered = Object.entries(transport).reduce((n, [h, count]) => n + Math.max(0, (count as number) - (network[h] ?? 0)), 0);
   return {
     requests: requests.length, processes: new Set(rows.map(r => r.pid)).size, by_host: byHost, from_tape: requests.filter(r => r.source === 'tape').length,
-    incomplete: requests.filter(r => !ends.get(r.id)?.complete).length, unsupported_bodies: requests.filter(r => String(r.form).startsWith('unsupported')).length,
+    incomplete: requests.filter(r => !ends.get(r.id)?.complete && !ends.get(r.id)?.consumer_stopped).length, consumer_stopped: requests.filter(r => ends.get(r.id)?.consumer_stopped).length, unsupported_bodies: requests.filter(r => String(r.form).startsWith('unsupported')).length,
     transport_seen: Object.values(transport).reduce((a: number, b: any) => a + b, 0), uncovered,
     divergences: rows.filter(r => r.kind === 'divergence').length, first_divergence: rows.filter(r => r.kind === 'divergence').sort((a, b) => a.t.localeCompare(b.t))[0] ?? null,
   };

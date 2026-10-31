@@ -27,9 +27,20 @@ const DRIVER = join(REPO_ROOT, 'tests', 'play', 'driver.ts'), PRELOAD = join(REP
 const stamp = () => new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 const readJson = (path: string, fallback: any = null) => { try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return fallback; } };
 
+/**
+ * Provider keys the App holds for lane models the driver does not seed (the author and journal lanes run on MiniMax):
+ * read from PipiCOC's own credentials into the driver's environment only, never onto a command line or into a file.
+ */
+const PIPICOC_AUTH = join(process.env.HOME ?? '', 'Library/Application Support/Pipi/pipicoc/pi-coc/agent/auth.json');
+const KEY_ENVS: Record<string, string> = { 'minimax-cn': 'MINIMAX_CN_API_KEY' };
+export function pipicocKeyEnv() {
+  const auth = readJson(PIPICOC_AUTH, {}), env: Record<string, string> = {};
+  for (const [provider, name] of Object.entries(KEY_ENVS)) if (typeof auth?.[provider]?.key === 'string' && auth[provider].key) env[name] = auth[provider].key;
+  return env;
+}
 function driver(args: string[], log: string, timeoutSeconds: number) {
   const started = Date.now();
-  const result = spawnSync(process.execPath, [DRIVER, ...args], { cwd: REPO_ROOT, encoding: 'utf8', timeout: timeoutSeconds * 1000, maxBuffer: 256 * 1024 ** 2 });
+  const result = spawnSync(process.execPath, [DRIVER, ...args], { cwd: REPO_ROOT, encoding: 'utf8', timeout: timeoutSeconds * 1000, maxBuffer: 256 * 1024 ** 2, env: { ...process.env, ...pipicocKeyEnv() } });
   writeFileSync(log, `$ driver ${args[0]}\n${result.stdout ?? ''}\n--- stderr\n${result.stderr ?? ''}\n`, { flag: 'a' });
   return { status: result.status, signal: result.signal, ms: Date.now() - started };
 }
@@ -60,6 +71,7 @@ export async function replayRun(options: { checkpoint: string; arm: string; mode
   const record: Row = {
     run_id: runId, label: options.label ?? null, checkpoint: { dir: checkpoint, id: manifest.id, grade: manifest.grade, tree_sha256: manifest.tree_sha256 },
     arm: { name: options.arm, model: options.model, thinking: options.thinking ?? null, code: { root: REPO_ROOT, head: spawnSync('git', ['-C', REPO_ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim() } },
+    provider_keys_from_pipicoc: Object.keys(pipicocKeyEnv()),
     rep, mode: options.tape ? 'tape' : 'live', tape: options.tape ? resolve(options.tape) : null, kernel_seed: seed, turn,
     restore: { method: restore.method, files: restore.files, tree_sha256: restored.tree_sha256 }, driver_run: driverRun, started_at: new Date().toISOString(),
   };
