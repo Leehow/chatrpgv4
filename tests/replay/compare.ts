@@ -14,13 +14,14 @@ import { fileURLToPath } from 'node:url';
 import type { Row } from './checkpoint.ts';
 
 /** Wall-clock fields: when something happened on the host, never what happened in the game. */
-export const VOLATILE = new Set(['at', 'opened_at', 'closed_at', 'created_at', 'updated_at', 'started_at', 'ended_at', 'recorded_at', 'written_at', 'durations', 'timings', '_recv_at', 'ts', 'wall_ms', 'elapsed_ms']);
+export const VOLATILE = new Set(['at', 'opened_at', 'closed_at', 'created_at', 'updated_at', 'started_at', 'ended_at', 'recorded_at', 'written_at', 'accepted_at', 'completed_at', 'durations', 'timings', '_recv_at', 'ts', 'wall_ms', 'elapsed_ms']);
 /**
  * Execution identity in the kernel's records: the sidecar commit hash (it covers the commit time), host run and attempt
  * ids, and digests computed over them (delivery packet and binding, call parameter digests, the world revision, whose
- * world.json is compared on its own). Masked only in the turn record; listed by name when they differ.
+ * world.json is compared on its own; the memory step key, a digest over the sidecar commit). Masked in the turn records and
+ * the event log.
  */
-export const EXECUTION_IDENTITY = new Set(['commit', 'attempt_id', 'delivery_id', 'packet', 'binding', 'params_sha256', 'world_revision']);
+export const EXECUTION_IDENTITY = new Set(['commit', 'record_commit', 'attempt_id', 'delivery_id', 'packet', 'binding', 'params_sha256', 'world_revision', 'reference_step']);
 const RUN_ID = /run-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 export function normalize(value: any, mask: Set<string> = new Set()): any {
@@ -38,7 +39,8 @@ export function stateDigest(workspace: string, campaign: string) {
   const add = (name: string, value: any) => { if (value !== null && value !== undefined) files[name] = sha(JSON.stringify(normalize(value))); };
   for (const name of ['world.json', 'turn.json', 'npc-ledger.json', 'epithets.json', 'first-sight.json', 'npc-journal.json', 'campaign.json']) add(name, readJson(join(dir, name)));
   for (const name of existsSync(join(dir, 'party')) ? readdirSync(join(dir, 'party')).sort() : []) add('party/' + name, readJson(join(dir, 'party', name)));
-  for (const name of ['events.jsonl', 'transcript.jsonl']) add(name, readJsonl(join(dir, name)));
+  add('events.jsonl', (readJsonl(join(dir, 'events.jsonl')) ?? null)?.map((event: Row) => normalize(event, EXECUTION_IDENTITY)));
+  add('transcript.jsonl', readJsonl(join(dir, 'transcript.jsonl')));
   for (const name of existsSync(join(dir, 'turns')) ? readdirSync(join(dir, 'turns')).sort() : []) { const record = readJson(join(dir, 'turns', name)); add('turns/' + name, record === null ? null : normalize(record, EXECUTION_IDENTITY)); }
   return { files, digest: sha(JSON.stringify(files)) };
 }
