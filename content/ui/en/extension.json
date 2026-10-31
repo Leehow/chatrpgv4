@@ -103,5 +103,8 @@
   "turn_failure_settlement_kept": "Already settled actions are retained.",
   "turn_failure_settlement_unknown": "Settlement status could not be verified.",
   "turn_failure_details": "Technical details",
-  "setup_repeated_refusal": "Setup could not continue: {detail}"
+  "setup_repeated_refusal": "Setup could not continue: {detail}",
+  "table_not_open_notice": "This table did not open ({detail}), so that message was not played.",
+  "table_not_open_next_campaign": "The campaign was never created: finish creating the character first, then open the table.",
+  "table_not_open_next_restart": "Restart the table; if it fails again, the technical details say why."
 }

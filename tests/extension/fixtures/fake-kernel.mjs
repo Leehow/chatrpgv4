@@ -910,6 +910,10 @@ function handle(method, params) {
 		case "adaptation.cancel":
 			return { ok: true, result: { name: params.name, status: "cancelled" } };
 		case "table.open": {
+			// FAKE_KERNEL_OPEN_ERROR: the table does not open, with this error code (a campaign whose setup never finished).
+			if (process.env.FAKE_KERNEL_OPEN_ERROR)
+				return { ok: false, error: { code: process.env.FAKE_KERNEL_OPEN_ERROR, message: `no campaign '${params.campaign ?? ""}'`,
+					fix: "call campaign.list, or campaign.create" } };
 			if (typeof params.campaign === 'string') workspaceCampaign = params.campaign;
 			const opening = process.env.FAKE_KERNEL_OPENING === "1";
 			const pending = process.env.FAKE_KERNEL_PENDING === "1";

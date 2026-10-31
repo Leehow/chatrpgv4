@@ -102,3 +102,23 @@ test("the host-driven opening is not a player message and is not checked as one"
 		"the opening is host-driven and owes the player no blank-message notice");
 	assert.deepEqual(customMessages(table.session, "coc-host").filter((message) => message.details?.kind === "player-input-empty"), []);
 });
+
+test("a table that never opened tells the player why and what to do, every message, and runs no Keeper turn (live 1031b)", async (t) => {
+	const table = await openTable({ env: { FAKE_KERNEL_OPEN_ERROR: "campaign_not_found" },
+		responses: [fauxAssistantMessage([fauxToolCall("look", { focus: "scene" })], { stopReason: "toolUse" }), fauxAssistantMessage("")] });
+	t.after(() => table.dispose());
+	for (const text of ["我先观察周围。", "我上前问主事的人。"]) {
+		await table.session.prompt(text);
+		await waitForIdle(table.session);
+	}
+	await waitFor(() => customMessages(table.session, "coc-delivery").filter((message) => message.details?.table_not_open).length === 2);
+	const notices = customMessages(table.session, "coc-delivery").filter((message) => message.details?.table_not_open);
+	assert.equal(notices.length, 2, "one notice per message, never a blank turn");
+	for (const notice of notices) {
+		assert.equal(notice.details.turn_unfinished, true);
+		assert.equal(notice.details.code, "campaign_not_found");
+		assert.match(notice.content, /战役还没有建好|campaign was never created/);
+	}
+	const host = table.session.messages.filter((message) => message.customType === "coc-host" && message.details?.kind === "table-not-open");
+	assert.ok(host.length >= 1, "the Keeper is told to end the run without output");
+});

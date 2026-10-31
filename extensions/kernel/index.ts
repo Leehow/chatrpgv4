@@ -1128,6 +1128,8 @@ let legMark: number | undefined;
  */
 const surface = extensionSurface();
 let startupError: string | undefined;
+/** The kernel's code for why the table did not open (a closed code, never read from the message). */
+let startupCode: string | undefined;
 /** Every field of the session_start ctx is computed on access, so holding it is holding a live view of the session. */
 let sessionCtx: ExtensionContext | undefined;
 /** Durable host handoff; cleared only after table.player_input records the stranded release. */
@@ -5451,6 +5453,22 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		setTimeout(() => void emitInputRefusedNotice(state, error, turn), 0);
 	}
 
+	/** The table never opened (startupError): the player's message reaches nothing, and they are told why and what next. */
+	async function emitTableNotOpenNotice(): Promise<void> {
+		const detail = (startupError ?? "").replace(/^The kernel could not open the table: /, "");
+		let line = `This table did not open (${detail}), so that message was not played. `
+			+ (startupCode === "campaign_not_found" ? "The campaign was never created: finish creating the character first, then open the table." : "Restart the table; if it fails again, the technical details say why.");
+		try {
+			const words = await surface.words();
+			line = words.line("table_not_open_notice", { detail }) + " " + (startupCode === "campaign_not_found"
+				? words.line("table_not_open_next_campaign") : words.line("table_not_open_next_restart"));
+		}
+		catch { /* an unreadable content root still owes the player the English line */ }
+		pi.sendMessage({ customType: "coc-delivery", content: line, display: true,
+			details: { coc_delivery: true, turn_unfinished: true, table_not_open: true, code: startupCode ?? "internal" } }, { triggerTurn: false });
+		void record({ lane: "delivery", ok: true, reason: "table_not_open_notice", code: startupCode ?? "internal" });
+	}
+
 	/**
 	 * Contract 41.1: the empty message is the one refusal the player can actually repair, so the host
 	 * answers it itself rather than spending a kernel call to be told the same thing in the one error code
@@ -8011,6 +8029,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		bridgeGate = { open: true };
 		const timingGate = bridgeGate;
 		startupError = undefined;
+		startupCode = undefined;
 		try {
 			runtime = createRuntime({ owner: "session", home: cocHome(ctx.cwd),
 				campaign: process.env.PI_COC_CAMPAIGN?.trim() || undefined },host);
@@ -8383,6 +8402,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		} catch (error) {
 			const detail = errorText(error);
 			startupError = `The kernel could not open the table: ${detail}`;
+			startupCode = isKernelError(error) ? error.code : "internal";
 			await runtime?.close();
 			runtime = undefined;
 			table = undefined;
@@ -8600,7 +8620,22 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	pi.on("before_agent_start", async (event) => {
 		finalHandoff=undefined;
 		const state = table;
-		if (!state) return;
+		if (!state) {
+			// live 1031b: a campaign whose setup never finished has no table; each player message then ran the Keeper
+			// into refused tools and ended with nothing on screen. The player is told, every message, what is wrong
+			// and what to do next, and the run ends without a Keeper turn.
+			if (setupMode || !startupError) return;
+			setTimeout(() => void emitTableNotOpenNotice(), 0);
+			return {
+				message: {
+					customType: "coc-host",
+					content: `${startupError}. The table never opened, so there is no turn to play and every tool is refused. `
+						+ "The player has been shown why and what to do next. Do not call any tool and write nothing: end this run without output.",
+					display: false,
+					details: { coc_host: true, kind: "table-not-open", scope: "turn", code: startupCode ?? null },
+				},
+			};
+		}
 		state.skillRun = newSkillRun();
 		state.reviewUnavailable = undefined;
 		state.reviewNoticeSent = false;
