@@ -35,7 +35,7 @@ import {SKELETON_VERSION} from './lean-skeleton.ts';
 import {cardBlocks, checkedCard} from './mechanics-card.ts';
 import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
 import {singleCall, normalName, titleOnlyFocus} from './lean-skeleton.ts';
-import {anchorPage, bookChapters, CHAPTER_NOTE, chapterAbsent, chapterHolding, chapterView, inChapter, noteChapterModule, placeChapter, scopeSpans, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
+import {bookChapters, CHAPTER_NOTE, chapterAbsent, chapterView, inChapter, noteChapterModule, placeChapter, scopeSpans, unplayedChapters, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
 import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, placePages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
@@ -630,26 +630,29 @@ export class ReadingService implements ReadingBridge {
 		if (!this.chapterBooks.has(sha)) this.chapterBooks.set(sha, this.runtime().sourceInfo({ pdf: snapshot.pdf, cache: join(dirname(snapshot.pdf), "cache", "pages") }, signal)
 			.then(info => bookChapters(info as Row, pageCount)).catch(error => { this.chapterBooks.delete(sha); throw error; }));
 		const book = await this.chapterBooks.get(sha)!;
-		const at = (page: number | undefined) => page === undefined ? undefined : chapterHolding(book.chapters, page);
+		// §276.5 before §276.2: a resident chapter is read from anywhere, so it never says where the party is.
+		const residents = await this.residentChapters(mid, snapshot, book, signal);
+		const excluded = unplayedChapters(book.chapters, residents), kept = await this.keptChapter(campaign, mid);
+		const located = (pages: number[]) => placeChapter(book.chapters, pages, kept, excluded);
 		let chapter: Chapter | undefined, resolved: ChapterScope["resolved"] = "scene";
 		const where = (await this.call("table.capsule", { _context_read: true }, campaign).catch(() => undefined))?.where ?? {};
 		const scene = String(where.scene ?? ""), shown = String(where.display_name ?? "");
-		chapter = at(anchorPage(await this.graphPages(campaign, scene).catch(() => [])));
+		// The scene's graph pages and the pointer index's pages are read by the same rule: where most of them stand.
+		chapter = located(await this.graphPages(campaign, scene).catch(() => []));
 		// Under lean reading the graph holds few places: the pointer index's pages for the place the scene is shown by.
 		if (!chapter) try { const skeleton = JSON.parse(await readFile(skeletonPath(this.deps.home, sha), "utf8"));
-			chapter = placeChapter(book.chapters, placePages(skeleton, `${shown}\n${scene}`), await this.keptChapter(campaign, mid));
+			chapter = located(placePages(skeleton, `${shown}\n${scene}`));
 			if (chapter) resolved = "pointer"; } catch { /* no index yet */ }
 		if (!chapter) {
 			resolved = "kept";
-			const kept = await this.keptChapter(campaign, mid);
 			chapter = kept && book.chapters.find(row => row.first === kept.first && row.last === kept.last);
 		}
 		if (!chapter) {
 			resolved = "opening";
 			const start = String((await this.call("module.status", { module_id: mid }, campaign).catch(() => undefined))?.opening?.start_scene ?? "");
-			chapter = at(anchorPage(await this.graphPages(campaign, start).catch(() => [])));
+			chapter = located(await this.graphPages(campaign, start).catch(() => []));
 		}
-		if (!chapter) { resolved = "first"; chapter = book.chapters.find(row => row.first > 1 || book.chapters.length === 1) ?? book.chapters[0]; }
+		if (!chapter) { resolved = "first"; chapter = book.chapters.find(row => !excluded.includes(row) && (row.first > 1 || book.chapters.length === 1)) ?? book.chapters[0]; }
 		const before = await this.keptChapter(campaign, mid);
 		if (!before || before.first !== chapter.first || before.last !== chapter.last) {
 			await this.keepChapter(campaign, mid, chapter).catch(() => undefined);
@@ -657,7 +660,7 @@ export class ReadingService implements ReadingBridge {
 				resolved, source: book.source, ...(before ? { previous: before.name } : {}) });
 		}
 		// §276.5: the reference chapters read from any chapter; the current one is never its own resident.
-		const current = chapter, resident = (await this.residentChapters(mid, snapshot, book, signal)).filter(own => own.first !== current.first || own.last !== current.last);
+		const current = chapter, resident = residents.filter(own => own.first !== current.first || own.last !== current.last);
 		const scope: ChapterScope = { ...chapter, source: book.source, resolved, ...(resident.length ? { resident } : {}) };
 		this.lastScopes.set(mid, scope);
 		return scope;
