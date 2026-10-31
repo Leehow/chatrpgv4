@@ -123,13 +123,12 @@ test('§276.2: only an indexed place places the party, the most specific one, in
  await mkdir(join(root,'source-skeletons'),{recursive:true});
  await writeFile(join(root,'source-skeletons',`${SHA}.json`),JSON.stringify({complete:true,entities:[
   {name:'马丁·海沃森',aliases:['马丁'],kinds:['npc'],blocks:[],pages:[3,10,11,12]},
-  {name:'马丁滩',aliases:[],kinds:['location'],blocks:[],pages:[2,3,4,6,7,8]},
+  {name:'马丁滩',aliases:[],kinds:['location'],blocks:[],pages:[2,4,6,7,8]},
   {name:'码头',aliases:[],kinds:['location'],blocks:[],pages:[4,8]}]}));
  assert.deepEqual([(await reading.chapterScope('blood-road','c1')).name,(await reading.chapterScope('blood-road','c1')).resolved],['Diner','pointer'],
-  'the beach, not the man; most of its pages are in Diner');
- assert.deepEqual(api.placeChapter([{name:'Intro',first:3,last:5},{name:'Diner',first:6,last:12}],[4,8],{name:'Intro',first:3,last:5}).name,'Intro',
-  'a tie keeps the chapter the party was in');
- assert.deepEqual(api.placeChapter([{name:'Intro',first:3,last:5},{name:'Diner',first:6,last:12}],[4,8]).name,'Intro','else the earliest');
+  'the beach, not the man; more than half of its pages are in Diner');
+ assert.equal(api.placeChapter([{name:'Intro',first:3,last:5},{name:'Diner',first:6,last:12}],[4,8]),undefined,
+  'a place split evenly decides nothing: the party stays where it was');
  reading.dispose();
 }));
 
@@ -220,20 +219,19 @@ test('§276.5: a Jev that cannot answer leaves no resident chapter, and the next
  }finally{globalThis.fetch=oldFetch;}
 }));
 
-test('§276.2: every chapter counts; a tie keeps where the party was, else prefers a chapter that is not resident or front matter',()=>{
+test('§276.2: a place locates the party only when more than half of its pages stand in one chapter',()=>{
  const book=[{name:'front matter',first:1,last:1},{name:'Keeper background',first:2,last:3},{name:'Player hook',first:4,last:4},
   {name:'Town',first:5,last:6},{name:'Beach',first:7,last:14},{name:'Grave',first:15,last:17},{name:'Pregens',first:18,last:20}];
- const resident=[book[1],book[3],book[6]];
- const secondary=api.secondaryChapters(book,resident);
- assert.deepEqual(secondary.map(row=>row.name),['front matter','Keeper background','Town','Pregens']);
- // live 1031 du: a cemetery named on p3 (background) and p4 (the hook): the tie prefers the hook.
- assert.equal(api.placeChapter(book,[3,4],undefined,secondary).name,'Player hook');
- // live 1031 dg: graph pages split evenly between two chapters: the earlier, or the one the party was in.
- assert.equal(api.placeChapter(book,[8,9,15,16],undefined,secondary).name,'Beach');
- assert.equal(api.placeChapter(book,[8,9,15,16],book[5],secondary).name,'Grave','a tie keeps the chapter the party was in');
- // A resident verdict does not take a chapter out of play: a place mostly in it is there (audit 1031: a story chapter judged resident).
- assert.equal(api.placeChapter(book,[5,6,9],undefined,secondary).name,'Town');
+ assert.equal(api.placeChapter(book,[8,9,10,16]).name,'Beach','three of four pages');
+ // live 1031 dg: graph pages split evenly between two chapters say nothing about where the party is.
+ assert.equal(api.placeChapter(book,[8,9,15,16]),undefined);
+ // audit 1031 du: Arkham places named on the background, the hook, the town and a later event: nothing moves.
+ assert.equal(api.placeChapter(book,[2,3,4,5,16,17]),undefined);
+ // audit 1031 ad: a city named on pages over many chapters, a fifth of them in one: nothing moves.
+ assert.equal(api.placeChapter(book,[2,4,5,8,9,15,18]),undefined);
+ // Every chapter counts, resident or not: a place on the town's pages is there.
+ assert.equal(api.placeChapter(book,[5,6,9]).name,'Town');
  // Known issue, not fixed here: a city named mostly in the pregenerated investigators still lands there.
- assert.equal(api.placeChapter(book,[4,18,19,20],undefined,secondary).name,'Pregens');
- assert.equal(api.placeChapter(book,[],book[4],secondary),undefined,'no pages decide nothing');
+ assert.equal(api.placeChapter(book,[4,18,19,20]).name,'Pregens');
+ assert.equal(api.placeChapter(book,[]),undefined,'no pages decide nothing');
 });

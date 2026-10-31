@@ -64,26 +64,20 @@ export function anchorPage(pages: number[]): number | undefined {
 }
 
 /**
- * §276.2: the chapter a place's (or a scene's) book pages stand in most: a place the book names on pages of several chapters
- * lives where most of them are, not at their median (live 1030k: a region named on pages 2-15 sent the party to a later
- * chapter; live 1031 dg: graph pages split between the scenes and the advice went to the advice). Every chapter counts. A tie
- * keeps the chapter the party was in; else it prefers a chapter that is not `secondary` (the resident chapters and the front
- * matter, read from anywhere anyway: live 1031 du's cemetery on the background's p3 and the hook's p4 went to the background),
- * else the earliest. No pages decide nothing.
+ * §276.2: the chapter that holds most of a place's (or a scene's) book pages, when one does: more than half of its distinct
+ * pages in one chapter. A place named on pages spread over several chapters (a city on 22 pages over 13 chapters, a town split
+ * evenly between the keeper's background and a later event) says nothing about where the party is, so it decides nothing and
+ * the party stays where it was (§276.2's kept, then the opening, then the first chapter). Live 1031 and the 7-book audit: the
+ * median, then a plain plurality with tie-breaks, each moved the party on such thin evidence (dg's entry to the hosting advice,
+ * du's Arkham places to a later event, ad's harbour scenes to the city chapter). Every chapter counts. No pages decide nothing.
  */
-export function placeChapter(chapters: Chapter[], pages: number[], kept?: Chapter, secondary: Chapter[] = []): Chapter | undefined {
-	const same = (a: Chapter, b: Chapter) => a.first === b.first && a.last === b.last;
+export function placeChapter(chapters: Chapter[], pages: number[]): Chapter | undefined {
 	const count = new Map<Chapter, number>();
-	for (const page of new Set(pages)) { const chapter = chapterHolding(chapters, page); if (chapter) count.set(chapter, (count.get(chapter) ?? 0) + 1); }
-	if (!count.size) return undefined;
-	const most = Math.max(...count.values());
-	const tied = chapters.filter(chapter => count.get(chapter) === most);
-	return tied.find(chapter => kept && same(chapter, kept)) ?? tied.find(chapter => !secondary.some(own => same(own, chapter))) ?? tied[0];
+	let total = 0;
+	for (const page of new Set(pages)) { const chapter = chapterHolding(chapters, page); if (chapter) { total++; count.set(chapter, (count.get(chapter) ?? 0) + 1); } }
+	for (const [chapter, held] of count) if (held * 2 > total) return chapter;
+	return undefined;
 }
-
-/** §276.2: the chapters a tie does not prefer: the front matter and the resident chapters. */
-export const secondaryChapters = (chapters: Chapter[], resident: Chapter[]): Chapter[] =>
-	chapters.filter(chapter => chapter.name === FRONT_MATTER || resident.some(own => own.first === chapter.first && own.last === chapter.last));
 
 export const chapterView = (scope: ChapterScope): Row => ({ name: scope.name, first: scope.first, last: scope.last, source: scope.source,
 	...(scope.resident?.length ? { resident: scope.resident.map(own => ({ name: own.name, first: own.first, last: own.last })) } : {}) });
