@@ -83,3 +83,22 @@ ad：1030k-mmnew t7、1030e-gkfields t10、1030e-gkfields t15、1030j-mmnew t13�
 - 报告行：`.coc/eval/reports/r1-batch1/rows.jsonl`（配对加第一轮录带）、`r1-determinism/`、`r1-determinism2/`
 - 检查点：`.coc/eval/checkpoints/r1-batch1/<case>/`，`cases.json` 里有抽样盐和全量清单
 - 每次 run：`.coc/eval/runs/<run_id>/result.json`（插件、种子、静止等待、骰果、回执摘要、捕获统计、残留进程）
+
+## 7. 补充（北京时间 17:40）：全量测试与盲评
+
+**全量测试**（Codex 在 Mac 上跑，日志：`.coc/eval/reports/codex-tests/`）：test:ext 6761 个用例、integration 2328 个用例，失败 76 个。
+- 其中 1 个是内核改动引入的：apply 预览构造的上下文没有 kernel，`entityId` 读种子时报错（`tests/integration/enhanced-locations.test.ts:161`）。已修（`kernel-ts/ids.ts` 允许 kernel 缺失，按产品原行为随机生成），修完后该文件 29/29 通过。
+- 其余失败集中在 18 个文件，原因是 Codex 沙箱禁止监听端口、禁止 mkdtemp、触发 Node 原生断言。我在沙箱外逐个重跑了这些文件，17 个全部通过。
+- 剩下的 `ts-kernel-foundation` 1 项是既有失败：`kernel.hello` 比冻结预期多列出已入库的 `content/starters/npc-state-bench`，测试、处理器和预期文件和基线完全相同。
+
+**正文盲评**（Codex 评完之后才按对照表还原两臂，报告：`.coc/eval/reports/r1-batch1/blind/codex-review.md`）：
+- 总体偏好：Grok 8、MiniMax 6、持平 1。
+- 四项平均分（Grok / MiniMax）：意图处理 4.47 / 4.33，具体信息 3.80 / 4.80，一致与可信 3.80 / 3.13，可读性 3.40 / 3.27。
+- MiniMax 给的细节更多，但更常把局部痕迹升级成确定结论，或者替玩家多做动作。每臂只有 15 个样本，只能算描述性比较。
+
+**MiniMax 臂 40 段长思考的成因**：
+- 边界指引落不到当前这一步：11 段
+- 材料或当前状态不完整、互相冲突：11 段
+- 反复权衡、没有停止条件：8 段，但这一类占的 token 最多，约 27%
+- 工具参数难以发现：7 段
+- 被拒绝后缺少恢复信息：2 段
