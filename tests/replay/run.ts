@@ -63,6 +63,7 @@ export async function replayRun(options: { checkpoint: string; arm: string; mode
   const workspace = join(root, 'workspace'), capture = join(root, 'capture'), log = join(root, 'runner.log');
   mkdirSync(root, { recursive: true });
   const restore = shareTestTree(join(checkpoint, 'home', '.coc'), join(workspace, '.coc'));
+  if (existsSync(join(checkpoint, 'home', 'source-skeletons'))) shareTestTree(join(checkpoint, 'home', 'source-skeletons'), join(workspace, 'source-skeletons'));
   const restored = treeDigest(workspace);
   if (restored.tree_sha256 !== manifest.tree_sha256) throw new Error('Restored workspace differs from the checkpoint');
   const seed = `${manifest.id}/r${rep}`, driverRun = 'replay-' + runId.replace(/[^A-Za-z0-9._-]/g, '_');

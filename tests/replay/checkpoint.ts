@@ -43,10 +43,10 @@ export function filesUnder(root: string, base = root): string[] {
   if (st.isFile()) return [relative(base, root)];
   return readdirSync(root).sort().flatMap(name => filesUnder(join(root, name), base));
 }
-/** One digest per file under `.coc`, and one for the whole tree. Paths are relative, so two restores compare. */
+/** One digest per file under `.coc` and `source-skeletons`, and one for the whole tree. Paths are relative, so two restores compare. */
 export function treeDigest(home: string, skip: (path: string) => boolean = () => false) {
   const files: Row = {};
-  for (const path of filesUnder(join(home, '.coc'), home)) if (!skip(path)) files[path] = sha256File(join(home, path));
+  for (const path of [...filesUnder(join(home, '.coc'), home), ...filesUnder(join(home, 'source-skeletons'), home)]) if (!skip(path)) files[path] = sha256File(join(home, path));
   return { files, tree_sha256: createHash('sha256').update(JSON.stringify(Object.entries(files))).digest('hex') };
 }
 function git(gitDir: string, args: string[], input?: Buffer) {
@@ -118,7 +118,21 @@ export function storesFor(campaign: string, module: string) {
     { path: `narrate-journal/${campaign}.json`, what: 'kernel narrate journal' },
     { path: 'document-presentations', what: 'document presentation cache' },
     { path: 'source-transcripts', what: 'page transcripts of the book (static book text, shared)', static: true },
+    { path: 'character-presentations', what: 'character presentation cache' },
+    { path: 'handout-readings', what: 'handout reading cache' },
   ];
+}
+/**
+ * Stores the module extension keeps at the workspace root, outside `.coc`, keyed by the book's file digest: the lean
+ * skeleton the Keeper's reading is built on, its release checks and section cards (`extensions/module/lean-skeleton.ts`,
+ * `release-check.ts`, `reading-service.ts`).
+ */
+export function rootStoresFor(home: string, campaign: string, module: string) {
+  const books = new Set<string>();
+  for (const dir of [join(home, '.coc', 'modules', module), join(home, '.coc', 'module-campaigns', campaign, 'modules', module)])
+    if (existsSync(join(dir, 'source.pdf'))) books.add(sha256File(join(dir, 'source.pdf')));
+  const root = join(home, 'source-skeletons');
+  return existsSync(root) ? readdirSync(root).filter(name => [...books].some(sha => name.startsWith(sha))).map(name => ({ path: 'source-skeletons/' + name, what: 'book skeleton, release checks and cards (workspace root)' })) : [];
 }
 
 function copyStore(source: string, target: string, cutoffMs: number | null, gaps: Row[], what: string, only?: (name: string) => boolean, isStatic = false) {
@@ -185,6 +199,13 @@ export function exportCheckpoint(options: { home: string; campaign: string; turn
       if (cutoff !== null && statSync(from).mtimeMs > cutoff) { gaps.push({ kind: 'written_after_c0', store: store.what, path: '.coc/' + store.path }); continue; }
       mkdirSync(dirname(to), { recursive: true }); cpSync(from, to, { preserveTimestamps: true });
     } else copyStore(from, to, cutoff, gaps, store.what, store.only, store.static);
+  }
+  for (const store of rootStoresFor(home, campaign, module)) {
+    const from = join(home, store.path), to = join(target, store.path);
+    if (statSync(from).isFile()) {
+      if (cutoff !== null && statSync(from).mtimeMs > cutoff) { gaps.push({ kind: 'written_after_c0', store: store.what, path: store.path }); continue; }
+      mkdirSync(dirname(to), { recursive: true }); cpSync(from, to, { preserveTimestamps: true });
+    } else copyStore(from, to, cutoff, gaps, store.what);
   }
   copySourceReading(home, target, campaign, module, gaps, !options.live);
   const source_run = findSourceRun(home, campaign, after?.player_text ?? null);

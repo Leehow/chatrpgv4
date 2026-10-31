@@ -37,7 +37,7 @@ export function restoreCheck(checkpoint: string) {
   const manifest = JSON.parse(readFileSync(join(checkpoint, 'manifest.json'), 'utf8')), campaign = manifest.source.campaign;
   const root = join(REPO_ROOT, '.coc', 'eval', 'restore-checks', manifest.id + '-' + Date.now());
   mkdirSync(root, { recursive: true });
-  const copies = ['a', 'b'].map(name => { const ws = join(root, name); shareTestTree(join(checkpoint, 'home', '.coc'), join(ws, '.coc')); return ws; });
+  const copies = ['a', 'b'].map(name => { const ws = join(root, name); shareTestTree(join(checkpoint, 'home', '.coc'), join(ws, '.coc')); if (existsSync(join(checkpoint, 'home', 'source-skeletons'))) shareTestTree(join(checkpoint, 'home', 'source-skeletons'), join(ws, 'source-skeletons')); return ws; });
   const trees = copies.map(ws => treeDigest(ws));
   const reads = copies.map(ws => kernelReads(ws, campaign));
   // Lock and ownership markers are coordination between processes, not state.
