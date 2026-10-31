@@ -118,7 +118,8 @@ function wrap(real, tape) {
       const hit = candidates.find(c => claim(c.request.id));
       if (!hit) {
         const near = nearest(tape, request);
-        write({ kind: 'divergence', id, t: new Date().toISOString(), url: request.url, body_sha256: request.body_sha256, nearest: near });
+        // `repeat`: the recording exists but was already used -- this run asked the same thing more times than the original.
+        write({ kind: 'divergence', id, t: new Date().toISOString(), url: request.url, body_sha256: request.body_sha256, reason: candidates.length ? 'repeat' : 'no_match', nearest: near });
         const body = JSON.stringify({ error: { type: 'replay_tape_divergence', message: 'Replay tape divergence: no recorded exchange matches this request.' } });
         write({ kind: 'response', id, t: new Date().toISOString(), status: 400, headers: { 'content-type': 'application/json' }, tape: null });
         write({ kind: 'response_end', id, t: new Date().toISOString(), complete: true, form: 'utf8', body, bytes: body.length });

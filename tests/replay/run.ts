@@ -14,7 +14,7 @@
  * The run's prose stays in its evidence files; this runner prints only counts, digests and verdict fields.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { shareTestTree } from '../../scripts/test-workspace.mjs';
@@ -88,6 +88,7 @@ export async function replayRun(options: { checkpoint: string; arm: string; mode
     record.leftovers = settle(workspace, record.daemon); save();
     throw new Error(`Replay refused (${record.refused}); see ${log}`);
   }
+  record.pre_input = await quiet(workspace, campaign);
   const began = Date.now(), played = driver(['turn', input.player_text, '--run', driverRun, '--timeout', String(timeout)], log, timeout + 60);
   record.turn_result = { exit: played.status, ms: Date.now() - began };
   driver(['stop', '--run', driverRun], log, 60);
@@ -102,6 +103,25 @@ export async function replayRun(options: { checkpoint: string; arm: string; mode
   save();
   return record;
 }
+
+/**
+ * Before the line goes in, let the work the opened table starts on its own finish: backfill of memory extraction and
+ * NPC journals for earlier turns that a historic C0 lacks, chapter scope, reading. In the source run that work ran
+ * while the player was deciding, so injecting at once would race it against the Keeper's first request and change
+ * what the Keeper sees from run to run. Quiet = no file under the campaign's live stores written for QUIET_MS.
+ */
+const QUIET_MS = 8000, QUIET_MAX_MS = 180000;
+async function quiet(workspace: string, campaign: string) {
+  const roots = [join(workspace, '.coc', 'campaigns', campaign), join(workspace, '.coc', 'memory-decisions', campaign), join(workspace, '.coc', 'chapter-scope'), join(workspace, 'source-skeletons'), join(workspace, '.coc', 'source-reading.sqlite')];
+  const latest = () => { let at = 0; for (const root of roots) for (const path of existsSync(root) ? (statSync(root).isFile() ? [root] : filesUnderAll(root)) : []) { try { at = Math.max(at, statSync(path).mtimeMs); } catch { } } return at; };
+  const started = Date.now();
+  while (Date.now() - started < QUIET_MAX_MS) {
+    if (Date.now() - Math.max(latest(), started) >= QUIET_MS) return { waited_ms: Date.now() - started, quiet_ms: QUIET_MS, settled: true };
+    await new Promise(done => setTimeout(done, 1000));
+  }
+  return { waited_ms: Date.now() - started, quiet_ms: QUIET_MS, settled: false };
+}
+function filesUnderAll(root: string): string[] { return readdirSync(root, { withFileTypes: true }).flatMap(e => e.isDirectory() ? filesUnderAll(join(root, e.name)) : [join(root, e.name)]); }
 
 /** Wait for the run's processes to end; whatever outlives the stop is ended and named in the record. */
 function settle(workspace: string, daemon: Row) {
