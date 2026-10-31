@@ -35,7 +35,7 @@ import {SKELETON_VERSION} from './lean-skeleton.ts';
 import {cardBlocks, checkedCard} from './mechanics-card.ts';
 import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
 import {singleCall, normalName, titleOnlyFocus} from './lean-skeleton.ts';
-import {bookChapters, CHAPTER_NOTE, chapterAbsent, chapterView, inChapter, noteChapterModule, placeChapter, scopeSpans, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
+import {bookChapters, CHAPTER_NOTE, chapterAbsent, chapterHolding, chapterView, inChapter, noteChapterModule, placeChapter, scopeSpans, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
 import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, placePages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
@@ -649,7 +649,10 @@ export class ReadingService implements ReadingBridge {
 		if (!chapter) {
 			resolved = "opening";
 			const start = String((await this.call("module.status", { module_id: mid }, campaign).catch(() => undefined))?.opening?.start_scene ?? "");
-			chapter = located(await this.graphPages(campaign, start).catch(() => []));
+			// The authored opening is where play starts: when its pages hold no majority, the chapter its first page stands in
+			// (audit 1031: openings on [4,5], [4,14,17], [14..18] fell through to the keeper's background as the first chapter).
+			const pages = await this.graphPages(campaign, start).catch(() => [] as number[]);
+			chapter = located(pages) ?? (pages.length ? chapterHolding(book.chapters, Math.min(...pages)) : undefined);
 		}
 		if (!chapter) { resolved = "first"; chapter = book.chapters.find(row => row.first > 1 || book.chapters.length === 1) ?? book.chapters[0]; }
 		const before = await this.keptChapter(campaign, mid);

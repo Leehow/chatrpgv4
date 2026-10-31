@@ -240,6 +240,15 @@ test('§276.5: a verdict with any chapter unanswered sets no resident chapter, e
  }finally{globalThis.fetch=oldFetch;}
 }));
 
+test('§276.2: an opening with no majority of pages starts in the chapter of its first page, not the first chapter',async()=>lean(async()=>{
+ // audit 1031: du's opening on [4,5], cs's on [4,14,17] fell through to the first chapter, the keeper's background.
+ const {reading}=await service(playtestScratch('chapter-scope','opening-split-'),{scene:'a place the table made',graph:{'Opening road':[4,7]},opening:'Opening road',
+  bookmarks:[{name:'Background',page:2},{name:'Intro',page:3},{name:'Diner',page:6}]});
+ const scope=await reading.chapterScope('blood-road','c1');
+ assert.deepEqual([scope.name,scope.resolved],['Intro','opening']);
+ reading.dispose();
+}));
+
 test('§276.2: a place locates the party only when more than half of its pages stand in one chapter',()=>{
  const book=[{name:'front matter',first:1,last:1},{name:'Keeper background',first:2,last:3},{name:'Player hook',first:4,last:4},
   {name:'Town',first:5,last:6},{name:'Beach',first:7,last:14},{name:'Grave',first:15,last:17},{name:'Pregens',first:18,last:20}];

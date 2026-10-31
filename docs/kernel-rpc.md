@@ -54002,7 +54002,9 @@ offline audit of 7 books: the median, then a plain plurality with tie-breaks, mo
 split between the scenes and the advice went to the advice; du's Arkham places, split between the background and a later event,
 went to the later event; a city entry over 13 chapters put harbour scenes in the city chapter); excluding resident chapters
 from the count (f13f3f8ce) took story chapters a verdict had judged resident out of play. Known issue: a place named mostly
-in a book's pregenerated-investigator pages still locates the party there (live 1031 cs). A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
+in a book's pregenerated-investigator pages still locates the party there (live 1031 cs). When nothing else decides, the authored opening's pages decide by the same rule; when they hold no
+majority, the party starts in the chapter of the opening's first page (audit 1031: du's opening on [4,5], cs's on [4,14,17] and
+ad's on [14..18] fell through to the first chapter, the keeper's background, and the kept chapter held the party there). A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
 it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's pages decide; with no opening pages either,
 the first chapter. The chapter changes only when the party is in a book scene of another chapter. Telemetry:
 `lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `pointer`, `kept`, `opening`, `first`) and the
