@@ -372,7 +372,7 @@ export function turnPacket(text:string,parameters?:TSchema):TurnPacket {
   if(schema&&Errors(schema,command).length)throw parameterError(`commands[${index}]`,schema,command);
  }
  {const content=contentDiagnostic(TURN_PACKET_PARAMETERS,raw);if(content)throw content;}
- if(object(raw)&&Array.isArray(raw.interactions))for(const row of raw.interactions)responseDecision(row,(raw.commands??[]).filter((row:any)=>row?.kind==='walk_on').map((row:any)=>row.slot));
+ if(object(raw)&&Array.isArray(raw.interactions))for(const row of raw.interactions)responseDecision(row,(Array.isArray(raw.commands)?raw.commands:[]).filter((row:any)=>row?.kind==='walk_on').map((row:any)=>row.slot));
  if(object(raw)&&raw.routine!==undefined){
   // Issuance is the per-turn schema's; without one the host checks the active capability before execution (§247.3).
   if(parameters&&!object((parameters as Record<string,any>).properties?.routine))throw new TurnPacketParameterError('Invalid decision command: routine is not issued for this turn; settle or omit the routine acts',['packet/routine: not issued']);

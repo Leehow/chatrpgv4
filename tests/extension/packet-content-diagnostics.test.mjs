@@ -56,3 +56,8 @@ test('a list sent as unreadable JSON text says where the text breaks (live 1030j
  assert.throws(()=>turnPacket(JSON.stringify({version:4,interactions:broken}),schema),
   error=>/packet\/interactions: must be array .*received string; the string is not valid JSON \(.+\): send the list itself as a JSON array/.test(error.message));
 });
+test('commands sent as unreadable JSON text beside interactions get the same diagnostic (live 1030k gk-minus du T13)',()=>{
+ const broken='[{"kind":"time","minutes":2,"reason":"\\uZZZZ"}]';
+ assert.throws(()=>turnPacket(JSON.stringify({version:4,commands:broken,interactions:answer([{new:{predicate:'input_requirements',topic:'Inn',fields:['subject_name']}}]).interactions}),schema),
+  error=>/packet\/commands: must be array .*the string is not valid JSON/.test(error.message)&&!/filter is not a function/.test(error.message));
+});
