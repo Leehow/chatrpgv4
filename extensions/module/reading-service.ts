@@ -50,7 +50,7 @@ import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
 import {readingImageBudget, readingReviewBudget, windowPlacesBudget, type WindowPlacesBudget} from '../../runtime/jev/host-budgets.ts';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
-import {askResidentChapters, RESIDENT_AT, RESIDENT_OPENING, RESIDENT_VERSION} from '../../runtime/jev/resident-chapters.ts';
+import {askResidentChapters, RESIDENT_FAMILY, RESIDENT_QUESTION_DIGEST, RESIDENT_VERSION, residentPages} from '../../runtime/jev/resident-chapters.ts';
 import {runWindowPlaces, WINDOW_PLACES_FAMILY} from '../../runtime/jev/window-places.ts';
 /**
  * `allowanceMs` (contract §22.4.3, SL-36): the foreground allowance of an in-turn source consultation. Past it `ensure`
@@ -602,17 +602,24 @@ export class ReadingService implements ReadingBridge {
 		if (!this.residents.has(sha)) this.residents.set(sha, (async () => {
 			const file = join(this.deps.home, ".coc", "chapter-scope", `resident-${sha}.json`);
 			try { const kept = JSON.parse(await readFile(file, "utf8"));
-				if (kept?.version === RESIDENT_VERSION && Array.isArray(kept.resident)) return kept.resident as Chapter[]; } catch { /* not asked yet */ }
-			const firsts = await this.sourcePages(mid, book.chapters.map(chapter => chapter.first), { transcribe: false }, signal).catch(() => [] as SourcePageText[]);
-			const opening = (page: number) => (firsts.find(row => row.page === page)?.text ?? "").replace(/\s+/g, " ").trim().slice(0, RESIDENT_OPENING);
-			const asked = await askResidentChapters({ moduleId: mid, sourceSha: sha, timeoutMs: 15_000, signal,
-				chapters: book.chapters.map(chapter => ({ ...chapter, opening: opening(chapter.first) })) }, createDecisionAdapter({ env: this.deps.env ?? process.env, maxConcurrency: 1 }));
-			const resident = book.chapters.filter((_, index) => asked.nouls[index] >= RESIDENT_AT);
-			this.note({ lane: "reading", event: "resident_chapters", module_id: mid, source_sha256: sha, resident: resident.map(chapter => chapter.name),
-				nouls: book.chapters.map((chapter, index) => [chapter.name, asked.nouls[index]]), ...(asked.failed ? { failed: asked.failed } : {}), usage: asked.usage });
+				// A verdict kept under another version or question is asked again (§276.5): the question and sampling changed in v2.
+				if (kept?.version === RESIDENT_VERSION && kept?.question === RESIDENT_QUESTION_DIGEST && Array.isArray(kept.resident)) return kept.resident as Chapter[]; } catch { /* not asked yet */ }
+			// Every page of the book, as reading reads it, without queuing transcripts; sourcePageText takes at most 32 pages a call.
+			const wanted = residentPages(book.chapters), read: SourcePageText[] = [];
+			try { for (let at = 0; at < wanted.length; at += 32) read.push(...await this.sourcePages(mid, wanted.slice(at, at + 32), { transcribe: false }, signal)); }
+			catch { read.length = 0; }
+			const pagesOf = (chapter: Chapter) => read.filter(row => row.page >= chapter.first && row.page <= chapter.last).map(row => ({ page: row.page, text: row.text }));
+			const asked = await askResidentChapters({ moduleId: mid, sourceSha: sha, timeoutMs: 30_000, signal,
+				chapters: book.chapters.map(chapter => ({ ...chapter, pages: pagesOf(chapter) })) }, createDecisionAdapter({ env: this.deps.env ?? process.env, maxConcurrency: 4 }));
+			const resident = book.chapters.filter((_, index) => asked.resident[index]);
+			this.note({ lane: "reading", event: "resident_chapters", module_id: mid, source_sha256: sha, family_version: RESIDENT_VERSION, resident: resident.map(chapter => chapter.name),
+				nouls: book.chapters.map((chapter, index) => [chapter.name, asked.nouls[index]]),
+				story_pages: book.chapters.flatMap((chapter, index) => asked.storyPages[index].length ? [[chapter.name, asked.storyPages[index]]] : []),
+				requests: asked.requests, ...(asked.failed ? { failed: asked.failed } : {}), usage: asked.usage });
 			// A verdict with any question unanswered sets no resident chapter at all (§276.5), and is asked again next session.
 			if (asked.failed) { this.residents.delete(sha); return []; }
-			await mkdir(dirname(file), { recursive: true }).then(() => writeFile(file, JSON.stringify({ version: RESIDENT_VERSION, resident }) + "\n")).catch(() => undefined);
+			await mkdir(dirname(file), { recursive: true }).then(() => writeFile(file, JSON.stringify({ version: RESIDENT_VERSION, family: RESIDENT_FAMILY,
+				question: RESIDENT_QUESTION_DIGEST, resident }) + "\n")).catch(() => undefined);
 			return resident;
 		})().catch(() => { this.residents.delete(sha); return [] as Chapter[]; }));
 		return this.residents.get(sha)!;

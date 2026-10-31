@@ -54052,6 +54052,36 @@ receipt names both ("The current chapter (...) and the book's reference chapters
 asks each: Dust to Dust: Keeper information, town and residents, character statistics; An Amaranthine Desire: background,
 protagonists, appendix B (character information); Digging for a Dead God: none (its three parts are 0.29-0.39).
 
+**v2 (2026-10-31, offline A/B 1031, owner-approved; supersedes the v1 question above).** The question reads the whole chapter,
+page by page, because a resident chapter is readable page by page from anywhere:
+
+1. **What Jev sees.** Every page of a chapter of at most six pages, otherwise its first, middle and last page; each page is
+   its reading text (`sourcePages`, `transcribe: false`), whitespace collapsed, at most 1000 characters, with its page. The
+   state of each request holds only that chapter and the book's outline (`book_outline`: headings and pages).
+2. **The questions.** One Noul per chapter (family `resident-chapters` v2, `runtime/jev/resident-chapters.ts`): is the whole
+   chapter reference material, judged page by page -- any sampled page carrying story, even in part or as the end of an
+   earlier section printed above the heading, makes it not resident; a mixed chapter is not resident; a summary told to the
+   Keeper of what has happened or is likely to happen is background, not story. The `false` criteria name three kinds of
+   story that read like reference, each with an invented example: a directory of places or people telling what the
+   investigators learn there or which rolls they make; dreams, visions or handouts the characters themselves live through;
+   items or rules given inside a scene. A chapter longer than six pages also gets one Noul per page: does any part of this
+   page play out story. Each question is its own request (under the packer's limits; at most 19.5 KB state plus question on
+   the seven test books).
+3. **The merge, in code.** A chapter is resident when its Noul is at least `RESIDENT_AT` (0.5), every question of the book was
+   answered, and no page of it reached 0.5 as story. Any unanswered question sets no resident chapter and keeps nothing.
+4. **The cache.** `resident-<sha>.json` carries `version: "2"`, `family` and `question` (a digest of the questions, sampling,
+   threshold and model); a kept verdict of another version or digest is asked again. Telemetry adds `family_version`,
+   `story_pages` and `requests`.
+
+Measured offline on seven books (65 chapters, gold labels by a separate reader; two runs each; tuning books du, ch, tt, bm,
+held-out books ad, dg, cs): v2 puts no story, mixed or front chapter in the resident set on any book (v1 question: 6 chapters;
+first-page question: 4), and the two runs agree on every chapter. Known issue, accepted: a chapter that narrates the
+scenario's premise is judged story, so the verdict errs toward not resident -- An Amaranthine Desire "1. 简介" (0.40/0.43) and
+Digging for a Dead God "介绍" (0.41/0.39) are reference chapters left out. The held-out books are not clean: their first-round
+data (gold labels, first-page and v1 scores) was seen before the split into tuning and held-out books, and the
+"dreams or handouts lived through" kind came from a first-round wrong answer on Children of a Starry Heaven. Report:
+`kp-translate-only/resident-ab-1031.md`.
+
 
 ## 277. A carried writing surface is registered beside play (owner 2026-10-29; extends §129.7)
 

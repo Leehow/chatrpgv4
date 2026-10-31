@@ -66,7 +66,7 @@ test('§276.3, §276.4: an answer is cut to the chapter; one left with no page i
 });
 
 /** A reading service over a fake kernel: a 12-page book whose chapters are Intro p3-5 and Diner p6-12. */
-async function service(root,{scene,graph={},notes=[],searched=[],opening,env,bookmarks=[{name:'Intro',page:3},{name:'Diner',page:6}]}={}){
+async function service(root,{scene,graph={},notes=[],searched=[],opening,env,bookmarks=[{name:'Intro',page:3},{name:'Diner',page:6}],pageText=page=>`Text of page ${page}.`,pageCalls=[]}={}){
  const pdf=join(root,'book','book.pdf'),cache=join(root,'book','cache');
  await mkdir(cache,{recursive:true});
  await writeFile(join(cache,`blocks-${SHA}.json`),JSON.stringify({layout_version:'v',pages:Object.fromEntries(Array.from({length:12},(_,i)=>[i+1,{page:i+1,blocks:[{id:`b${i+1}-0-x`,text:`Page ${i+1} heading`}]}]))}));
@@ -82,7 +82,7 @@ async function service(root,{scene,graph={},notes=[],searched=[],opening,env,boo
   runtime:{sourceInfo:async()=>({bookmarks}),
    sourceSearch:async request=>{searched.push(request);return {matches:[{page:2},{page:8}]};},
    sourceBlocks:async()=>{throw new Error('the block cache answers');},
-   sourcePageText:async({pages})=>({pages:pages.map(page=>({page,text:`Text of page ${page}.`,layer:'native'}))})},
+   sourcePageText:async({pages})=>{pageCalls.push(pages);return {pages:pages.map(page=>({page,text:pageText(page),layer:'native'}))};}},
  });
  reading.books.set('blood-road',{sha:SHA,cache});
  return {reading,state};
@@ -176,20 +176,33 @@ test('§276.2: the reading service answers other readers through the registered 
  assert.equal(api.chapterResolverSet(),false,'a disposed service no longer answers');
 }));
 
+/**
+ * A fake Jev for §276.5 v2: every request is one question; `chapter(heading)` answers a chapter's Noul, `story(heading,page)`
+ * a long chapter's page; undefined leaves that question unanswered.
+ */
+function fakeJev(asked,{chapter=()=>0.1,story=()=>0.1}={}){
+ return async(_url,options)=>{const sent=JSON.parse(options.body);asked.push(sent);const answers={};
+  for(const key of Object.keys(sent.questions??{})){
+   const value=key.startsWith('story_')?story(sent.state.chapter.heading,sent.state.page.page):chapter(sent.state.chapter.heading);
+   if(value!==undefined)answers[key]={type:'noul',noul:value};}
+  return Response.json({model:sent.model,usage:{input_tokens:10,output_tokens:2},answers});};
+}
+const residentBook=[{name:'Background',page:2},{name:'Intro',page:3},{name:'Diner',page:6}];
+const chapterAsks=asked=>asked.filter(sent=>Object.keys(sent.questions).every(key=>key.startsWith('resident_')));
+const pageAsks=asked=>asked.filter(sent=>Object.keys(sent.questions).every(key=>key.startsWith('story_')));
+
 test('§276.5: Jev names the reference chapters, read from any chapter; asked once per book and kept by file hash',async()=>lean(async()=>{
  const root=playtestScratch('chapter-scope','resident-'),notes=[],asked=[];
  const oldFetch=globalThis.fetch;
- globalThis.fetch=async(_url,options)=>{const sent=JSON.parse(options.body);asked.push(sent);
-  const answers={};for(const [key,question] of Object.entries(sent.questions??{})){const own=sent.state.book_chapters[key.replace(/^resident_/,'')];
-   answers[key]={type:'noul',noul:own.heading==='Background'?0.9:0.1};}
-  return Response.json({model:sent.model,usage:{input_tokens:10,output_tokens:2},answers});};
+ globalThis.fetch=fakeJev(asked,{chapter:heading=>heading==='Background'?0.9:0.1});
  try{
-  const bookmarks=[{name:'Background',page:2},{name:'Intro',page:3},{name:'Diner',page:6}];
-  const {reading}=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},notes,bookmarks,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  const {reading}=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},notes,bookmarks:residentBook,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
   const scope=await reading.chapterScope('blood-road','c1');
   assert.deepEqual(scope.resident,[{name:'Background',first:2,last:2}]);
-  assert.equal(asked.length,1);
-  assert.ok(Object.values(asked[0].state.book_chapters).every(row=>typeof row.text_there==='string'&&row.text_there.startsWith('Text of page')),'heading and first lines');
+  // front matter 1-1, Background 2-2, Intro 3-5, Diner 6-12: four chapter questions and Diner's seven pages, one request each.
+  assert.equal(chapterAsks(asked).length,4);assert.equal(pageAsks(asked).length,7);assert.equal(asked.length,11);
+  assert.ok(asked.every(sent=>Object.keys(sent.questions).length===1&&sent.model==='jev-1.13.0'),'one question per request, pinned model');
+  assert.ok(asked.every(sent=>sent.state.book_outline.length===4&&!('book_chapters' in sent.state)),'each request holds the outline and its own chapter');
   assert.equal(api.inChapter(scope,2),true);assert.equal(api.inChapter(scope,4),false);
   const pages=await reading.bookPages('blood-road',{campaign:'c1',pages:[2,4,7]});
   assert.deepEqual(pages.source_answer.excerpts.map(span=>span.page),[2,7]);
@@ -199,13 +212,71 @@ test('§276.5: Jev names the reference chapters, read from any chapter; asked on
   const away=await reading.bookPages('blood-road',{campaign:'c1',pages:[4]});
   assert.match(away.source_answer.answer,/and the book's reference chapters \(Background, pages 2-2\)/);
   await reading.chapterScope('blood-road','c1');
-  assert.equal(asked.length,1,'asked once');
+  assert.equal(asked.length,11,'asked once');
   reading.dispose();
-  const again=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  const again=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks:residentBook,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
   assert.deepEqual((await again.reading.chapterScope('blood-road','c1')).resident,[{name:'Background',first:2,last:2}]);
-  assert.equal(asked.length,1,'kept on disk by file hash');
+  assert.equal(asked.length,11,'kept on disk by file hash');
   again.reading.dispose();
-  assert.equal(notes.find(row=>row.event==='resident_chapters')?.resident?.[0],'Background');
+  const note=notes.find(row=>row.event==='resident_chapters');
+  assert.equal(note?.resident?.[0],'Background');assert.equal(note.family_version,'2');assert.equal(note.requests,11);
+  assert.deepEqual(note.story_pages.map(([name,rows])=>[name,rows.length]),[['Diner',7]]);
+ }finally{globalThis.fetch=oldFetch;}
+}));
+
+test('§276.5 v2: a chapter of up to six pages is shown whole, each page cut to 1000 characters, read without queuing transcripts',async()=>lean(async()=>{
+ const root=playtestScratch('chapter-scope','resident-whole-'),asked=[],pageCalls=[];
+ const oldFetch=globalThis.fetch;globalThis.fetch=fakeJev(asked);
+ try{
+  const {reading}=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks:residentBook,pageCalls,
+   pageText:page=>`Page ${page} `+'x'.repeat(3000),env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  await reading.chapterScope('blood-road','c1');
+  const intro=chapterAsks(asked).find(sent=>sent.state.chapter.heading==='Intro').state.chapter;
+  assert.equal(intro.sampled,'every page');
+  assert.deepEqual(intro.samples.map(row=>row.page),[3,4,5]);
+  assert.ok(intro.samples.every(row=>row.text.length===1000&&row.text.startsWith(`Page ${row.page} `)));
+  const diner=chapterAsks(asked).find(sent=>sent.state.chapter.heading==='Diner').state.chapter;
+  assert.equal(diner.sampled,'first, middle and last page');
+  assert.deepEqual(diner.samples.map(row=>row.page),[6,9,12],'a long chapter: first, middle and last');
+  assert.deepEqual(pageAsks(asked).map(sent=>sent.state.page.page).sort((a,b)=>a-b),[6,7,8,9,10,11,12]);
+  assert.ok(pageAsks(asked).every(sent=>sent.state.page.text.length===1000));
+  assert.deepEqual(pageCalls.flat().sort((a,b)=>a-b),Array.from({length:12},(_,i)=>i+1),'every page of the book read once for the ask');
+  reading.dispose();
+ }finally{globalThis.fetch=oldFetch;}
+}));
+
+test('§276.5 v2: one page of a long chapter judged story keeps the whole chapter from being resident',async()=>lean(async()=>{
+ const oldFetch=globalThis.fetch;
+ try{
+  const asked=[];globalThis.fetch=fakeJev(asked,{chapter:heading=>['Background','Diner'].includes(heading)?0.9:0.1,story:(_,page)=>page===10?0.6:0.1});
+  const {reading}=await service(playtestScratch('chapter-scope','resident-story-'),{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks:residentBook,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  assert.deepEqual((await reading.chapterScope('blood-road','c1')).resident,[{name:'Background',first:2,last:2}],'Diner page 10 is story');
+  reading.dispose();
+  const calm=[];globalThis.fetch=fakeJev(calm,{chapter:heading=>['Background','Diner'].includes(heading)?0.9:0.1,story:()=>0.49});
+  // The party is in Intro: a current chapter is not listed again among the resident ones.
+  const other=await service(playtestScratch('chapter-scope','resident-calm-'),{scene:'Intro hall',graph:{'Intro hall':[3,4]},bookmarks:residentBook,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  assert.deepEqual((await other.reading.chapterScope('blood-road','c1')).resident.map(row=>row.name),['Background','Diner'],'no page reaches 0.5');
+  other.reading.dispose();
+ }finally{globalThis.fetch=oldFetch;}
+}));
+
+test('§276.5 v2: a verdict kept under the old version, or another question, is asked again',async()=>lean(async()=>{
+ const root=playtestScratch('chapter-scope','resident-stale-'),asked=[];
+ const file=join(root,'.coc','chapter-scope',`resident-${SHA}.json`);
+ await mkdir(join(root,'.coc','chapter-scope'),{recursive:true});
+ await writeFile(file,JSON.stringify({version:'1',resident:[{name:'Diner',first:6,last:12}]})+'\n');
+ const oldFetch=globalThis.fetch;globalThis.fetch=fakeJev(asked,{chapter:heading=>heading==='Background'?0.9:0.1});
+ try{
+  const {reading}=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks:residentBook,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  assert.deepEqual((await reading.chapterScope('blood-road','c1')).resident,[{name:'Background',first:2,last:2}],'the v1 verdict is not used');
+  assert.equal(asked.length,11);reading.dispose();
+  const kept=JSON.parse(await (await import('node:fs/promises')).readFile(file,'utf8'));
+  assert.equal(kept.version,'2');assert.equal(kept.family,'resident-chapters');assert.match(kept.question,/^[0-9a-f]{16}$/);
+  await writeFile(file,JSON.stringify({...kept,question:'0'.repeat(16)})+'\n');
+  const again=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks:residentBook,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  await again.reading.chapterScope('blood-road','c1');
+  assert.equal(asked.length,22,'another question digest is asked again');
+  again.reading.dispose();
  }finally{globalThis.fetch=oldFetch;}
 }));
 
@@ -219,24 +290,25 @@ test('§276.5: a Jev that cannot answer leaves no resident chapter, and the next
  }finally{globalThis.fetch=oldFetch;}
 }));
 
-test('§276.5: a verdict with any chapter unanswered sets no resident chapter, even one answered yes, and is not kept',async()=>lean(async()=>{
+test('§276.5: a verdict with any question unanswered sets no resident chapter, even one answered yes, and is not kept',async()=>lean(async()=>{
  // audit 1031: the code kept the chapters already answered above the threshold; the contract says none.
  const root=playtestScratch('chapter-scope','resident-partial-');
- const oldFetch=globalThis.fetch;let calls=0;
- globalThis.fetch=async(_url,options)=>{calls++;const sent=JSON.parse(options.body),answers={};
-  for(const [key] of Object.entries(sent.questions??{})){const own=sent.state.book_chapters[key.replace(/^resident_/,'')];
-   if(own.heading==='Background')answers[key]={type:'noul',noul:0.9};
-   else if(own.heading!=='Diner')answers[key]={type:'noul',noul:0.1};}
-  return Response.json({model:sent.model,usage:{input_tokens:10,output_tokens:2},answers});};
+ const oldFetch=globalThis.fetch;const asked=[];
+ globalThis.fetch=fakeJev(asked,{chapter:heading=>heading==='Background'?0.9:heading==='Diner'?undefined:0.1});
  try{
-  const bookmarks=[{name:'Background',page:2},{name:'Intro',page:3},{name:'Diner',page:6}];
-  const {reading}=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  const {reading}=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks:residentBook,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
   assert.equal((await reading.chapterScope('blood-road','c1')).resident,undefined,'no resident chapter at all');
   reading.dispose();
-  const again=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  const first=asked.length;
+  const again=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks:residentBook,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
   await again.reading.chapterScope('blood-road','c1');
-  assert.equal(calls,2,'nothing kept: the next session asks again');
+  assert.equal(asked.length,2*first,'nothing kept: the next session asks again');
   again.reading.dispose();
+  // An unanswered page question counts the same.
+  const pages=[];globalThis.fetch=fakeJev(pages,{chapter:heading=>heading==='Background'?0.9:0.1,story:(_,page)=>page===8?undefined:0.1});
+  const third=await service(playtestScratch('chapter-scope','resident-partial-page-'),{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},bookmarks:residentBook,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  assert.equal((await third.reading.chapterScope('blood-road','c1')).resident,undefined);
+  third.reading.dispose();
  }finally{globalThis.fetch=oldFetch;}
 }));
 
