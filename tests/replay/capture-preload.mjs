@@ -29,7 +29,7 @@ const sha = (data) => createHash('sha256').update(data).digest('hex');
  * the execution, never of the game: this run's physical root, and the per-session prompt cache key.
  */
 const RUN_ROOT = CAPTURE ? dirname(CAPTURE) : null;
-export const TAPE_NORMALIZATION = ['run root path -> <run>', 'prompt_cache_key -> <session>', 'lane working directory in <cwd> -> <cwd>', 'host run ids run-<uuid> -> run-<id>'];
+export const TAPE_NORMALIZATION = ['run root path -> <run>', 'prompt_cache_key -> <session>', 'lane working directory in <cwd> -> <cwd>', 'host run ids run-<uuid> -> run-<id>', 'world_revision digests (they cover receipt wall-clock times) -> <revision>', 'mkdtemp scratch names attempt-XXXXXX -> attempt-<tmp>'];
 function normalizedBody(body, root) {
   if (body == null) return null;
   // A lane child's working directory is a fresh scratch path named by the clock (".../batch-1-<ms>").
@@ -37,6 +37,11 @@ function normalizedBody(body, root) {
   if (root) text = text.split(root).join('<run>');
   text = text.replace(/"prompt_cache_key":"[^"]*"/g, '"prompt_cache_key":"<session>"');
   text = text.replace(/run-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, 'run-<id>');
+  // `world_revision` digests world, party and this turn's receipts, whose `at` is the wall clock; the state itself
+  // is still in the prompt and still compared.
+  text = text.replace(/(world_revision\\?":\\?")[0-9a-f]{64}/g, '$1<revision>');
+  // A lane's scratch directory made by mkdtemp ("…/attempt-7WZaBU/draft.json"), quoted back in tool errors.
+  text = text.replace(/\/attempt-[A-Za-z0-9]{6}(?=\/)/g, '/attempt-<tmp>');
   return text;
 }
 let sequence = 0;
@@ -135,7 +140,15 @@ function wrap(real, tape) {
       }
       const headers = { ...hit.response.headers }; delete headers['content-encoding']; delete headers['content-length']; delete headers['transfer-encoding'];
       write({ kind: 'response', id, t: new Date().toISOString(), status: hit.response.status, headers, tape: hit.request.id });
-      const chunks = (hit.end.chunks ?? []).map(c => Buffer.from(c, 'base64'));
+      // A recorded answer can name the recording run's own files (a lane's tool call `cd`s into its workspace); it is
+      // pointed at this run's root, or the replay would act on another run's workspace.
+      let chunks = (hit.end.chunks ?? []).map(c => Buffer.from(c, 'base64'));
+      const recordedRoot = dirname(TAPE), whole = Buffer.concat(chunks).toString('utf8');
+      if (RUN_ROOT && whole.includes(recordedRoot)) {
+        const moved = Buffer.from(whole.split(recordedRoot).join(RUN_ROOT)), n = Math.max(1, chunks.length), size = Math.ceil(moved.length / n);
+        chunks = []; for (let at = 0; at < moved.length; at += size) chunks.push(moved.subarray(at, at + size));
+        write({ kind: 'tape_rewrite', id, t: new Date().toISOString(), tape: hit.request.id, from: 'recorded run root', to: 'this run root' });
+      }
       write({ kind: 'response_end', id, t: new Date().toISOString(), complete: true, tape: hit.request.id, bytes: chunks.reduce((n, c) => n + c.length, 0) });
       // The recorded latency is kept (PI_COC_REPLAY_TAPE_TIMING=0 drops it): the host races background work against the
       // Keeper's first request, so answering instantly would change which material is ready, not only how fast.

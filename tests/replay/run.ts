@@ -91,6 +91,9 @@ export async function replayRun(options: { checkpoint: string; arm: string; mode
   record.pre_input = await quiet(workspace, campaign);
   const began = Date.now(), played = driver(['turn', input.player_text, '--run', driverRun, '--timeout', String(timeout)], log, timeout + 60);
   record.turn_result = { exit: played.status, ms: Date.now() - began };
+  // The same rest after the turn: background work the turn started (epithets, journals, memory) finishes before the
+  // table stops, so the state compared is the turn's whole effect and not wherever the stop cut it.
+  record.post_turn = await quiet(workspace, campaign);
   driver(['stop', '--run', driverRun], log, 60);
   record.leftovers = settle(workspace, record.daemon);
   const turnFile = readdirSync(evidence).filter(f => /^turn-\d+\.json$/.test(f)).sort().pop(), driverTurn = turnFile ? readJson(join(evidence, turnFile)) : null;
