@@ -2170,6 +2170,8 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 
 - 每条闭合词表的拒绝同时给 `fix` 与 `details.options`（实体名用 `details.candidates`）。本票补齐：`campaign.create` 的 `play_language`/`register`、`table.look` 的 `scope`、`resolve` 的 `action.defense`/`action.mode`、`apply npc` 的 `to`、会话族的 `combat`/`chase`/`sanity` 命令词、`state.end_session` 的 ending kind、`setup.investigator` 的 `allocation`，以及 §14.14 的 `start_scene`。
 - **拒绝的可照做部分必须活过每一层投影**：`extensions/onboarding` 的工具结果现在带 `fix` 与 `details`。任何把内核错误压成 `{code, message}` 的地方都是同一个缺陷。
+- **`start_scene` 的候选在 TS 内核里补回（2026-10-31，live 1031b）。** `campaign.create` 的 `start_scene` 不是书里写好的开场时，拒绝带 `details.candidates`（每项 `{scene, name}`）和 `fix`；模组还没有准备好图谱时单独回 `details.reason: module_not_prepared`，不和「名字没对上」混用。此前 TS 内核只说一句，两桌建卡各连试 93 次和 188 次。
+- **同一拒绝连续三次即判建卡失败（2026-10-31）。** 在同一条玩家消息里，同一步骤以同一错误码被拒连续 `SETUP_REFUSAL_LIMIT`（3）次，建卡以 `setup_blocked`、`blocked_by: repeated_refusal`、`cause` 为该错误码失败：本消息里后续 setup 调用都得到同一拒绝，模型自己写的正文不上屏，玩家看到最后一次拒绝的原因和 `fix`（`setup_repeated_refusal`）。给玩家的提问（`needs_choice`、`brief_incomplete`）不算拒绝；中间夹了别的结果就重新计数；下一条玩家消息重新开始。
 
 ### 14.16 A built-in starter reads the book it names (2026-09-24, SL-28; amends §14.9, §14.12, §22.1, §22.6 and §127.2)
 

@@ -102,5 +102,6 @@
   "turn_failure_no_settlement": "No actions were settled.",
   "turn_failure_settlement_kept": "Already settled actions are retained.",
   "turn_failure_settlement_unknown": "Settlement status could not be verified.",
-  "turn_failure_details": "Technical details"
+  "turn_failure_details": "Technical details",
+  "setup_repeated_refusal": "Setup could not continue: {detail}"
 }

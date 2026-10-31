@@ -986,3 +986,29 @@ test('setup advertises and binds actual input selections while stale aliases nev
     assert.equal(confirmed.params.player_requests,undefined);assert.equal(confirmed.params.setup_input.bindings.pending_action.authority,'player_input');
     assert.notEqual(confirmed.params.input_key,draft.params.input_key);
 });
+
+test("the same step refused with the same code three times in one player message fails setup, shown to the player (live 1031b)", async (t) => {
+	const bad = { step: "create-campaign", id: "repeat-fixture", title: "Repeated refusal", play_language: "xx-bogus" };
+	const table = await openSetup([
+		setupCall({ step: "choose-source", kind: "starter", module: "the-haunting" }),
+		setupCall(bad), setupCall(bad), setupCall(bad), setupCall(bad),
+		fauxAssistantMessage("I will just make up an opening scene instead."),
+	]);
+	t.after(() => table.dispose());
+	await table.session.prompt("Start with this prepared source.");
+	await waitForIdle(table.session);
+	const results = setupResults(table.session);
+	assert.deepEqual(results.slice(1, 3).map((row) => row.code), ["invalid_params", "invalid_params"], "the first two refusals pass through as they are");
+	const failed = results[3];
+	assert.equal(failed.code, "setup_blocked");
+	assert.equal(failed.blocked_by, "repeated_refusal");
+	assert.equal(failed.cause, "invalid_params");
+	assert.match(failed.error, /3 times in a row/);
+	assert.equal(failed.fix, "one of details.options", "the last refusal's fix is kept");
+	assert.equal(results[4].code, "setup_blocked", "later calls in the same message stay refused");
+	assert.deepEqual(lastAssistantTextBlocks(table.session), [], "no prose written around the failure reaches the screen");
+	const notices = table.ui.notifications.filter((row) => row.type === "error").map((row) => row.message);
+	assert.equal(notices.length, 1, JSON.stringify(notices));
+	assert.match(notices[0], /unsupported play_language/);
+	assert.match(notices[0], /one of details\.options/);
+});

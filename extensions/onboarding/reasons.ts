@@ -19,7 +19,7 @@ export interface ReasonFacts {
 	code?: string;
 	/** For a block or a failed guidance preparation, the preparer's or kernel's code underneath it. */
 	cause?: string;
-	/** For a block, its kind (`guidance_at_create_campaign`, `guidance_at_turn_start`, `package_context`). */
+	/** For a block, its kind (`guidance_at_create_campaign`, `guidance_at_turn_start`, `package_context`, `repeated_refusal`). */
 	blockedBy?: string;
 	/** `details.reason` of a `needs` refusal (`reading_timeout`, `reading_failed`, `opening_preparing`, ...). */
 	reason?: string;
@@ -59,6 +59,7 @@ export function playerReason(facts: ReasonFacts): string | undefined {
 	const {code, cause, blockedBy, reason, purpose} = facts;
 	if (code === "setup_blocked") {
 		if (blockedBy === "package_context") return "One of this campaign's add-on packages (Mods) cannot be read, so setup is paused until it is repaired or turned off in the Mods panel.";
+		if (blockedBy === "repeated_refusal") return "Setup got stuck on the same step and stopped instead of retrying it. Your next message tries again.";
 		return guidanceReason(cause);
 	}
 	if (code === "guidance_failed") return guidanceReason(cause);

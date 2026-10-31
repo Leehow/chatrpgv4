@@ -71,7 +71,9 @@ function errorText(error: unknown): string {
  * of that notice stays on screen. The flag carries the cause so the refusal, the notice and the
  * text rule each read it, never a string.
  */
-type SetupBlockKind = 'guidance_at_create_campaign' | 'guidance_at_turn_start' | 'package_context';
+type SetupBlockKind = 'guidance_at_create_campaign' | 'guidance_at_turn_start' | 'package_context' | 'repeated_refusal';
+/** Setup fails once the same step is refused with the same code this many times in a row within one player message. */
+export const SETUP_REFUSAL_LIMIT = 3;
 interface SetupBlock {
 	kind: SetupBlockKind;
 	/** The kernel's or the preparer's error code, when it had one. */
@@ -86,7 +88,7 @@ interface SetupBlock {
 
 /** The two guidance kinds: the only blocks whose remedy is a setup step (§98 addendum 9). */
 function guidanceBlock(block: SetupBlock | undefined): boolean {
-	return block !== undefined && block.kind !== 'package_context';
+	return block !== undefined && block.kind !== 'package_context' && block.kind !== 'repeated_refusal';
 }
 
 /**
@@ -95,7 +97,8 @@ function guidanceBlock(block: SetupBlock | undefined): boolean {
  * (§14.19), and hiding its text was half of the Masks deadlock.
  */
 function setupBlockHidesText(block: SetupBlock): boolean {
-	return guidanceBlock(block) && block.code !== 'needs_choice';
+	// A setup that failed on the same refusal shows the player that refusal, never prose written around it.
+	return block.kind === 'repeated_refusal' || (guidanceBlock(block) && block.code !== 'needs_choice');
 }
 
 /** The actionable half of a thrown error, read structurally (contract §14.15). */
@@ -117,7 +120,9 @@ function openingCandidates(details: unknown): unknown[] | undefined {
 function setupBlockRefusal(block: SetupBlock, remedy?: string): Record<string, unknown> {
 	const why = block.code ? `${block.code}: ${block.detail}` : block.detail;
 	let error: string;
-	if (block.kind === 'package_context') {
+	if (block.kind === 'repeated_refusal') {
+		error = `Setup failed: ${why}, ${SETUP_REFUSAL_LIMIT} times in a row for this player message. Stop calling setup and write no prose of your own; the host shows the player this failure. A new player message may try again.`;
+	} else if (block.kind === 'package_context') {
 		error = `The setup package context could not be read (mods.context: ${why}). Setup is blocked until it is restored: fix or disable the package the error names in the Mods panel, then wait for a new player input, which reads the context again; do not draft or continue setup on the core policy alone.`;
 	} else if (block.code === 'needs_choice') {
 		error = `Setup waits for the opening (${why}). Ask the player which opening to start from (details.candidates), then call ${remedy ?? 'the preparation step'} with the exact chosen candidate.scene handle as start_scene: it records the choice and prepares the guidance again. Do not translate that handle, invent a setup scene or create a card.`;
@@ -211,6 +216,8 @@ export default function (pi: ExtensionAPI) {
   /** The player's earlier setup messages, before this input (§151.6: a first card is read from all of them). */
   let earlierInputs:string[]=[];
   let setupBlock: SetupBlock | undefined;
+  /** The last refusal of this player message (step and code) and how many times in a row it came back. */
+  let lastRefusal: {key: string; count: number} | undefined;
   /** §14.19: the openings the host last answered `needs_choice` with; the preparation step stays open until one is recorded. */
   let openingQuestion: unknown[] | undefined;
   /**
@@ -983,6 +990,23 @@ export default function (pi: ExtensionAPI) {
 		paint();
 	}
 
+	/**
+	 * The same step refused with the same code, again and again within one player message, is a setup that cannot
+	 * get further by retrying (live 1031b: 93 and 188 calls on one refusal): the third in a row fails setup, and the
+	 * player is shown that refusal's reason and fix. A question for the player (an opening, a missing brief) is not
+	 * a refusal, and a different result in between starts the count again.
+	 */
+	function refusalLimit(params: Record<string, unknown>, result: Record<string, unknown>): Record<string, unknown> {
+		const code = asString(result.code), step = asString(result.step) || asString(params.step);
+		if (result.ok !== false || !code || !step || ['setup_blocked', 'needs_choice', 'brief_incomplete'].includes(code)) { lastRefusal = undefined; return result; }
+		const key = `${step}\u0000${code}`;
+		lastRefusal = lastRefusal?.key === key ? {key, count: lastRefusal.count + 1} : {key, count: 1};
+		if (lastRefusal.count < SETUP_REFUSAL_LIMIT) return result;
+		const detail = asString(result.message) || asString(result.error) || code, fix = asString(result.fix), details = asRecord(result.details);
+		setupBlock = {kind: 'repeated_refusal', code, detail: `${step}: ${detail}`, ...(fix ? {fix} : {}), ...(Object.keys(details).length ? {details} : {}), noticed: false};
+		return setupBlockRefusal(setupBlock, remedyStep());
+	}
+
 	async function execute(raw: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
 		const startedAt = Date.now();
 		if (setupBlock && !remedyOpen(asString(raw.step))) return setupBlockRefusal(setupBlock, remedyStep());
@@ -1374,7 +1398,7 @@ export default function (pi: ExtensionAPI) {
 		prepareArguments: (args: unknown) => normalizeToolArgumentSyntax(setupArgumentSyntax, args, {nativeValidation: true}).args as any,
 		executionMode: "sequential",
 		execute: async (_toolCallId, params, signal) => {
-			const result = await execute(asRecord(params), signal);
+			const result = refusalLimit(asRecord(params), await execute(asRecord(params), signal));
 			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
 		},
 	}); }
@@ -1387,7 +1411,7 @@ export default function (pi: ExtensionAPI) {
   });
 	// ---- Lifecycle --------------------------------------------------------
   pi.on('before_agent_start',async(event)=>{
-    lastPlayerInput=event.prompt;inputKey=randomUUID();setupBlock=undefined;
+    lastPlayerInput=event.prompt;inputKey=randomUUID();setupBlock=undefined;lastRefusal=undefined;
     await ensureSteps();freezeInputSources(event.prompt);
     const inputPrompt='\n\nSetup input source selection (setup-input-reference-v1): profile.name selects {source,range?:{first,last}} or proposes {generated:newName}. Omit unchanged names when revising. pending_action selects only an actual player request; no generated form or copied string is permitted. This catalog covers user text fields only, not image or attached-file content. Unit aliases are inclusive grapheme endpoints, never character offsets. Coverage omissions mean missing input is unavailable, not absent; preserve an existing draft name and ask for a repeated request when its source is needed. Never copy epochs, digests or message IDs.\n'+JSON.stringify(inputCatalog!.public);
     // The frontend's confirm button commits the draft and completes setup on a cold kernel before
@@ -1574,7 +1598,8 @@ export default function (pi: ExtensionAPI) {
         block.noticed=true;
         try {
           const words=await speaking();
-          ctx?.ui.notify(block.kind==='package_context' ? words.line('setup_packages_failed',{detail:block.detail})
+          ctx?.ui.notify(block.kind==='repeated_refusal' ? words.line('setup_repeated_refusal',{detail:[block.detail,block.fix].filter(Boolean).join(' — ')})
+            : block.kind==='package_context' ? words.line('setup_packages_failed',{detail:block.detail})
             : block.code==='preparation_failed' ? words.word('setup_guidance_review_failed')
             : words.line('setup_guidance_failed',{detail:block.detail}),'error');
         }
