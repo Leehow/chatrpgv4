@@ -8625,7 +8625,9 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			// into refused tools and ended with nothing on screen. The player is told, every message, what is wrong
 			// and what to do next, and the run ends without a Keeper turn.
 			if (setupMode || !startupError) return;
-			setTimeout(() => void emitTableNotOpenNotice(), 0);
+			setTimeout(() => void emitTableNotOpenNotice().catch(() => {
+				/* the notice must never break a turn, nor outlive its session */
+			}), 0);
 			return {
 				message: {
 					customType: "coc-host",
