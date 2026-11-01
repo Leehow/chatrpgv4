@@ -6,6 +6,7 @@
  * The one opening the library does record is the book's own: a reference whose only entry is the book's, published with no
  * `start_scene` asked (§14.19.8 rule 1). It is marked `of: 'book'`; an unmarked library choice is always a table's.
  */
+import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { KernelContext } from '../context.js';
 import { appendJsonl } from '../fileio.js';
@@ -38,6 +39,24 @@ export function dropForeignOpening(meta: Row): void {
 
 const reported = new Set<string>();
 
+/** The campaign's recorded opening and node handles, remembered per campaign file stamps (mtime + size) so a steady-state read costs two stats. */
+const anchors = new Map<string, { stamp: string; opening: string; handles: Row }>();
+
+async function campaignAnchor(context: KernelContext, directory: string): Promise<{ opening: string; handles: Row }> {
+    const stamp = async (name: string): Promise<string> => {
+        try { const info = await stat(join(directory, name)); return `${info.mtimeMs}:${info.size}`; } catch { return ''; }
+    };
+    const key = `${context.stateRoot}\u0000${directory}`, now = `${await stamp('campaign.json')}|${await stamp('world.json')}`, known = anchors.get(key);
+    if (known?.stamp === now) return known;
+    const read = async (name: string): Promise<Row> =>
+        await context.snapshots.pathExists(join(directory, name)) ? row(await context.snapshots.readJson(join(directory, name))) : {};
+    const saved = await read('campaign.json'), world = await read('world.json');
+    const entry = { stamp: now, opening: typeof saved.opening_scene === 'string' ? saved.opening_scene : '',
+        handles: { ...row(row(saved.setup).node_handles), ...row(world.node_handles) } };
+    anchors.set(key, entry);
+    return entry;
+}
+
 /**
  * §14.19.10: a fork made before 14.19.8 may still hold the opening it cloned from the library (live7 du-1101b: entry-2
  * against a campaign on entry-1). On every read of a fork's metadata the campaign's own opening (`campaign.json`
@@ -49,11 +68,8 @@ const reported = new Set<string>();
 export async function anchorForkOpening(context: KernelContext, meta: Row, sceneIds: () => Promise<Set<string>>): Promise<void> {
     if (!isCampaignFork(meta) || !truth(row(meta.opening_choice).start_scene)) return;
     const campaign = string(meta.campaign_scope), moduleId = string(meta.id), fork = string(row(meta.opening_choice).start_scene);
-    const directory = join(context.campaignsRoot, campaign), read = async (name: string): Promise<Row> =>
-        await context.snapshots.pathExists(join(directory, name)) ? row(await context.snapshots.readJson(join(directory, name))) : {};
-    const saved = await read('campaign.json'), opening = saved.opening_scene;
-    if (typeof opening !== 'string' || !opening || opening === fork) return;
-    const handles = { ...row(row(saved.setup).node_handles), ...row((await read('world.json')).node_handles) };
+    const directory = join(context.campaignsRoot, campaign), { opening, handles } = await campaignAnchor(context, directory);
+    if (!opening || opening === fork) return;
     if (handles[fork] === opening) return;
     let target = Object.keys(handles).find(id => handles[id] === opening) ?? '';
     if (!target) { const scenes = await sceneIds(); if (scenes.has(opening)) target = opening; }
