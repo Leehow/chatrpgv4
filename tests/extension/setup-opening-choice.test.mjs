@@ -77,6 +77,10 @@ function withGuidanceReader(table, packets) {
 	} } });
 }
 
+/** The candidates as every projection hands them on: each with its 1-based ordinal, the position it is offered at (§14.19.11). */
+const numbered = (rows) => rows.map((row, index) => ({ ...row, ordinal: index + 1 }));
+const NUMBERED = numbered(OPENINGS);
+
 const moduleEnv = (moduleId, openings) => ({ FAKE_KERNEL_MODULE: JSON.stringify({ module_id: moduleId, opening_candidates: openings }) });
 const draftProfile = { name: { generated: "Helen" }, occupation: "journalist", age: 29, sex: "female", concept: "A cautious reporter.", own_language: "English" };
 
@@ -90,8 +94,7 @@ test("a choice made while its opening is still being read is recorded when it is
 		responses: [
 			setupCall({ step: "choose-source", kind: "module", module: "two-door" }),
 			setupCall({ step: "prepare-module" }),
-			setupCall({ step: "prepare-module", start_scene: "tower" }),
-			fauxAssistantMessage("The book is still being read."),
+			fauxAssistantMessage("Which opening: 1. The Dock or 2. The Tower?"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -101,9 +104,12 @@ test("a choice made while its opening is still being read is recorded when it is
 
 	await table.session.prompt("Let's play the book with two doors.");
 	await waitForIdle(table.session);
+	table.faux.setResponses([setupCall({ step: "prepare-module", start_scene: "tower" }), fauxAssistantMessage("The book is still being read.")]);
+	await table.session.prompt("The tower.");
+	await waitForIdle(table.session);
 	const [, asked, waited] = setupResults(table.session);
 	assert.equal(asked.code, "needs_choice", JSON.stringify(asked));
-	assert.deepEqual(asked.details.candidates, OPENINGS, "the candidates survive every projection to the guide");
+	assert.deepEqual(asked.details.candidates, NUMBERED, "the candidates survive every projection to the guide");
 	assert.equal(typeof asked.player_reason, "string", "the question carries the player's reason");
 	assert.equal(waited.ok, false);
 	assert.equal(waited.details.reason, "reading_timeout", `the opening read outlasted the wait: ${JSON.stringify(waited)}`);
@@ -164,9 +170,7 @@ test("create-campaign with no recorded opening on a two-opening book is a questi
 			setupCall({ step: "choose-source", kind: "module", module: "two-door" }),
 			setupCall({ step: "prepare-module" }),
 			setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
-			setupCall({ step: "prepare-module", start_scene: "dock" }),
-			setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
-			fauxAssistantMessage("Who are you?"),
+			fauxAssistantMessage("Which opening: 1. The Dock or 2. The Tower?"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -179,10 +183,17 @@ test("create-campaign with no recorded opening on a two-opening book is a questi
 
 	await table.session.prompt("Let's play the book with two doors.");
 	await waitForIdle(table.session);
+	table.faux.setResponses([
+		setupCall({ step: "prepare-module", start_scene: "dock" }),
+		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
+		fauxAssistantMessage("Who are you?"),
+	]);
+	await table.session.prompt("The dock.");
+	await waitForIdle(table.session);
 	const [, , asked, chose, created] = setupResults(table.session);
 	assert.equal(asked.ok, false);
 	assert.equal(asked.code, "needs_choice", `a question, never preparation_failed: ${JSON.stringify(asked)}`);
-	assert.deepEqual(asked.details.candidates, OPENINGS);
+	assert.deepEqual(asked.details.candidates, NUMBERED);
 	assert.match(asked.fix, /prepare-module .*start_scene/, "the fix names the step that records the answer");
 	assert.equal(typeof asked.player_reason, "string");
 	assert.equal(chose.ok, true, `the step that records the choice is open again: ${JSON.stringify(chose)}`);
@@ -218,7 +229,7 @@ test("a campaign created without its opening: the block asks, keeps the guide's 
 	const refused = setupResults(table.session).at(-1);
 	assert.equal(refused.code, "setup_blocked");
 	assert.equal(refused.cause, "needs_choice", `the cause is the missing opening, not a failed preparation: ${JSON.stringify(refused)}`);
-	assert.deepEqual(refused.details.candidates, OPENINGS, "the block carries the candidates");
+	assert.deepEqual(refused.details.candidates, NUMBERED, "the block carries the candidates");
 	assert.match(refused.error, /prepare-module with the exact chosen candidate.scene handle as start_scene/);
 	assert.equal(typeof refused.player_reason, "string", "SL-100: the refusal carries the player's reason");
 	assert.ok(!refused.player_reason.includes("setup_blocked") && !refused.player_reason.includes("needs_choice"));
@@ -238,7 +249,7 @@ test("a campaign created without its opening: the block asks, keeps the guide's 
 	const [misnamed, chose, drafted] = setupResults(table.session).slice(1);
 	assert.equal(misnamed.code, "needs_choice", `a scene the book does not offer is asked again: ${JSON.stringify(misnamed)}`);
 	assert.equal(misnamed.failed_on, "module.opening.choose");
-	assert.deepEqual(misnamed.details.candidates, OPENINGS);
+	assert.deepEqual(misnamed.details.candidates, NUMBERED);
 	assert.equal(typeof misnamed.player_reason, "string");
 	assert.equal(chose.ok, true, `the block does not block its own remedy: ${JSON.stringify(chose)}`);
 	const pinned = table.kernelRequests().filter((row) => row.method === "module.opening.choose").at(-1);
@@ -318,6 +329,11 @@ test("a second opening the reading brings in after a sole candidate was taken as
 	openings.set(OPENINGS);
 	table.faux.setResponses([
 		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
+		fauxAssistantMessage("Which opening: 1. The Dock or 2. The Tower?"),
+	]);
+	await table.session.prompt("Make the campaign.");
+	await waitForIdle(table.session);
+	table.faux.setResponses([
 		setupCall({ step: "prepare-module", start_scene: "tower" }),
 		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
 		fauxAssistantMessage("Who are you?"),
@@ -326,7 +342,7 @@ test("a second opening the reading brings in after a sole candidate was taken as
 	await waitForIdle(table.session);
 	const [asked, chose, created] = setupResults(table.session).slice(2);
 	assert.equal(asked.code, "needs_choice", `the new candidate is put to the player, not carried past: ${JSON.stringify(asked)}`);
-	assert.deepEqual(asked.details.candidates, OPENINGS);
+	assert.deepEqual(asked.details.candidates, NUMBERED);
 	assert.equal(asked.details.reason, undefined, "no earlier choice was set aside: none had been made");
 	assert.equal(chose.ok, true, JSON.stringify(chose));
 	assert.equal(prepared.at(-1).start_scene, "tower");
@@ -345,8 +361,7 @@ test("a choice made among two openings is asked again when a third arrives befor
 		responses: [
 			setupCall({ step: "choose-source", kind: "module", module: "two-door" }),
 			setupCall({ step: "prepare-module" }),
-			setupCall({ step: "prepare-module", start_scene: "dock" }),
-			fauxAssistantMessage("The dock it is."),
+			fauxAssistantMessage("Which opening: 1. The Dock or 2. The Tower?"),
 		],
 	});
 	t.after(() => table.dispose());
@@ -362,6 +377,9 @@ test("a choice made among two openings is asked again when a third arrives befor
 
 	await table.session.prompt("Let's play the book with two doors.");
 	await waitForIdle(table.session);
+	table.faux.setResponses([setupCall({ step: "prepare-module", start_scene: "dock" }), fauxAssistantMessage("The dock it is.")]);
+	await table.session.prompt("The dock.");
+	await waitForIdle(table.session);
 	const [, firstAsk, chose] = setupResults(table.session);
 	assert.equal(firstAsk.code, "needs_choice", JSON.stringify(firstAsk));
 	assert.equal(chose.ok, true, JSON.stringify(chose));
@@ -369,15 +387,20 @@ test("a choice made among two openings is asked again when a third arrives befor
 	openings.set([...OPENINGS, THIRD]);
 	table.faux.setResponses([
 		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
+		fauxAssistantMessage("There is a third opening now. Which one?"),
+	]);
+	await table.session.prompt("Make the campaign.");
+	await waitForIdle(table.session);
+	table.faux.setResponses([
 		setupCall({ step: "prepare-module", start_scene: "train" }),
 		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
 		fauxAssistantMessage("Who are you?"),
 	]);
-	await table.session.prompt("Make the campaign.");
+	await table.session.prompt("The train.");
 	await waitForIdle(table.session);
 	const [reasked, rechose, created] = setupResults(table.session).slice(3);
 	assert.equal(reasked.code, "needs_choice", `the third opening is put to the player: ${JSON.stringify(reasked)}`);
-	assert.deepEqual(reasked.details.candidates, [...OPENINGS, THIRD]);
+	assert.deepEqual(reasked.details.candidates, numbered([...OPENINGS, THIRD]));
 	assert.equal(reasked.details.reason, "opening_candidates_changed");
 	assert.deepEqual(reasked.details.unseen, ["scene-train"]);
 	assert.equal(reasked.details.previous_choice, "dock", "the choice set aside is named");

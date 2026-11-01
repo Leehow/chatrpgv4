@@ -2392,6 +2392,59 @@ a one-entry reference published without `start_scene` keeps its entry on the lib
 seeded into a fork with no campaign opening, kept across writes), while an unmarked choice of the same scene is not cloned
 and is dropped on the next write.
 
+**14.19.11 The player chooses the opening, in a later message than the question (2026-11-01, live7 1101; amends
+14.19.1 and 14.19.3).** In du-1101a-gksevr, du-1101b-mmsev, cs-1101b-gksev and cs-1101b-mmsev, `create-campaign`
+answered `needs_choice`, and in that same turn, before the player could read the question, the guide called
+`prepare-module {start_scene: <second candidate>}` and `create-campaign`. Both succeeded. The player's answer one turn
+later ("the first opening") was refused because both steps were "already done and not redone". The host had checked that
+a choice existed and that the candidates had been put out. It never checked that the choice came from the player. The
+tables where it worked had gone through Jev's `pick_opening` (`o0`) after the player replied. Evidence:
+`kp-translate-only/opening-names-1101.md`. Rules, for every book:
+
+1. **When the question was asked.** The host notes the player input in whose turn a candidate was first offered
+   (`openingAskedAt`, the setup input ordinal of `coc-setup-input-epoch`, set by `poseOpening` only when a candidate is
+   new). Asking the same candidates again does not move it. The ordinal and the offered ids are also appended as the
+   session entry `coc-setup-opening-asked` (`{ordinal, offered}`) and restored at `session_start`. A setup restarted on
+   the same session (`runtime/launch.ts` names it `coc-setup-<campaign>`) therefore continues the ordinals and does not
+   mistake the answer's turn for the asking one. A setup that starts a new session asks again, as §14.19.5 says.
+2. **A start_scene from the asking turn is refused.** On a book whose openings were offered, the preparation step refuses
+   a `start_scene` received in that same input: `code: "opening_not_chosen_by_player"`,
+   `details: {field: "start_scene", reason: "no_player_reply_since_question", given, candidates}`, a `fix` that says to
+   ask and then pass the player's choice, and §14.19.4's opening `player_reason`. The refusal comes before the gate, so
+   nothing runs, nothing is recorded or booked, and the question stays open. Like `needs_choice`, it does not count
+   toward the repeated-refusal limit. The Jev `pick_opening` move goes through the same check: it runs in the answer's
+   turn, so it passes. A book with one opening, or where no question was asked, is unchanged; there §225.3 still asks at
+   `create-campaign`.
+3. **Correction before the campaign exists.** After a choice is recorded and before `create-campaign` has run, a later
+   input that names a different candidate (compared by `node_id` or `scene` exactly) reopens the preparation step for
+   that one call. It drops the guidance key, guidance and owed guidance prepared for the old opening, and prepares the
+   new one. The same opening again is still "already done".
+4. **After the campaign exists the opening is bound.** The kernel keeps the opening in `campaign.json` `opening_scene`,
+   in the guidance key and in the world it writes; no kernel method re-pins it. A later, different choice before
+   `complete` is answered `code: "opening_already_bound"`, `details: {reason: "campaign_opening_bound", given, bound}`,
+   with a `player_reason` ("start a new table"), and not with "already done". The remedy path for a campaign that was
+   created with no opening (14.19.1, `module.opening.choose {campaign}`) is unchanged. Re-pinning a created campaign
+   would need a kernel method; this section adds none (ticket `docs/specs/campaign-opening-rechoice.md`).
+5. **Answers by position.** Every candidate list the host hands on carries `ordinal` (1-based, the position it is offered
+   at). This covers `needs_choice` details from `create-campaign`, the preparation step and the pin, the block and its
+   refusal, the turn-start prompt's list, and `setup` read's `openings`. The guide offers openings by ordinal. An answer
+   by position is mapped to a candidate by the guide, or by Jev's `o<index>` in the same order, and the host binds only
+   the candidate's `scene`. The host never parses ordinals out of the player's text.
+6. **What the guide is told.** In the asking turn, the turn-start prompt says to end the reply after the question and
+   that a `start_scene` sent now is refused. In a later turn it says that this message may answer it. `prompts/setup.md`
+   says the same.
+
+Tests:
+- `tests/extension/setup-opening-authority.test.mjs`:
+  - the live sequence: the guide's pick in the asking turn is refused, and so are its repeats; nothing is created or
+    prepared; the player's "first" answer prepares and creates the first opening.
+  - the same on the driven engine, with a fake Jev answering `o0`.
+  - correction before creation, and the bound refusal after it.
+  - the turn-start prompt in both turns.
+  - a setup restarted on the same session takes the player's answer, while a session without the record refuses it.
+- `tests/extension/setup-opening-choice.test.mjs`: its cases now answer the question in a later turn and expect numbered
+  candidates.
+
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
 一条世界线就是战役 sidecar 仓库里的一条分支。玩家在一个战役里同一时刻只玩一条线；可以分叉、回溯、切换、汇流；所有线都留着（证据永不删除）。什么跨线留下、谁记得别的线、汇流时怎么合，由模组图声明、内核确定性地算；守秘人只在胶囊里看到这是第几圈、锚点在哪、留下了什么、谁记得、有哪些回声可投放。世界线操作是世界的改变，所以走 `apply`（法则二），并在那一回合提交之后由内核执行——守秘人仍然只有七个动词。旧树世界线系统的双时态断言、九种记忆状态、跨战役转移、自动合并策略都不回来。
