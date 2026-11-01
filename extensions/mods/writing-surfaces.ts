@@ -12,6 +12,8 @@ import { WRITING_SURFACES_FAMILY, WRITING_SURFACES_JUDGE_MS, WRITING_SURFACES_PE
 	type CarriedRow } from "../../runtime/jev/writing-surfaces.ts";
 import type { Json } from "../../runtime/jev/contracts.ts";
 import { readJevApiKey } from "../jev/agent/config.js";
+/** Audit 1101: a failed connection is retried too, inside the 30 s judgement bound; a failure pauses the campaign 10 minutes. */
+export const WRITING_SURFACES_RETRY = { maxRetries: 1, backoffInitialMs: 200, backoffMaxMs: 2_000, retryNetwork: true };
 
 type Row = Record<string, any>;
 type Call = (method: string, params: Row) => Promise<any>;
@@ -20,7 +22,7 @@ export const WRITING_SURFACES_PAUSE_MS = 10 * 60_000;
 export function createWritingSurfaceJudge(deps: { record: (row: Row) => void; decision?: () => DecisionPort | undefined; pauseMs?: number; judgeMs?: number }) {
 	let port: DecisionPort | undefined;
 	const decision = deps.decision ?? (() => readJevApiKey(process.env)
-		? port ??= createDecisionAdapter({ env: process.env, maxConcurrency: 2, retryPolicies: { [WRITING_SURFACES_FAMILY]: { maxRetries: 1, backoffInitialMs: 200, backoffMaxMs: 2_000 } } })
+		? port ??= createDecisionAdapter({ env: process.env, maxConcurrency: 2, retryPolicies: { [WRITING_SURFACES_FAMILY]: WRITING_SURFACES_RETRY } })
 		: undefined);
 	const paused = new Map<string, number>();
 	const note = (row: Row) => { try { deps.record({ lane: "writing-surfaces", ...row }); } catch { /* telemetry decides nothing */ } };

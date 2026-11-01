@@ -200,3 +200,22 @@ test('a recovered basis cannot lower fitting bars or turn an unavailable decisio
   assert.equal(await openClueRoute(deps,refusal),undefined);
   assert.equal(records.at(-1)?.ok,false);assert.equal(records.at(-1)?.resent,false);
 });
+
+test('audit 1101: a failed connection is retried once inside the route deadline, and the route is still decided', async t => {
+  const seen=[];let fetches=0;
+  t.mock.method(globalThis, 'fetch', async (_url, init) => {
+    fetches++;
+    if (fetches===1) throw new TypeError('fetch failed', {cause: {code: 'UND_ERR_CONNECT_TIMEOUT'}});
+    const request = JSON.parse(init.body);seen.push(request);
+    return new Response(JSON.stringify({model:JEV_MODEL, answers:Object.fromEntries(Object.keys(request.questions)
+      .map(key=>[key,{type:'noul',noul:({fit_r0:0.82})[key]??0.1}])), usage:{input_tokens:300,output_tokens:12}}),
+      {status:200,headers:{'Content-Type':'application/json'}});
+  });
+  const refusal={clue:input.clue.name,check:input.clue.check,routes:{other_rolls:input.rolls},index:1};
+  const entity={name:input.clue.name,kind:'clue',summary:input.clue.summary,material:'ready',properties:{},relations:[]};
+  const result=await openClueRoute({env:{EXT_JEV_APIKEY:'test-only'},campaign:input.campaign,turn:input.turn,
+    declaration:input.declaration,budget,record:()=>{},call:async method=>method==='table.apply.options'?{candidates:[]}
+      :{query:input.clue.name,expected_kind:'clue',entities:[entity]}},refusal);
+  assert.equal(fetches,2,'one failed connection, one retry');
+  assert.deepEqual(result,{route:'fitting_check',roll:input.rolls[0].id});
+});

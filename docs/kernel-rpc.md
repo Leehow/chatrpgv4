@@ -20268,6 +20268,47 @@ SDK mocks and test doubles may prove serialization, factory, subscription, and i
 
 New, resume, and fork each create/rebind the HostSessionAdapter, resubscribe to the correct events, and revalidate intent, scope, read set, deadlines, and owned work; no stale adapter, listener, checkpoint, or provider state crosses the boundary. The common caller deadline and cancellation must abort owned active work, distinguish awaiter yield from owner cancellation, and exclude late output. Provider/Jev/LLM/fallback tokens, cost, and context usage are attributed to the correct role and task without Grok misattribution. Secrets remain host-only (the bounded probe may receive a consuming-process environment binding) and are never persisted in session JSONL, prompts, artifacts, renderer settings, source, traces, or logs. The legacy launcher remains until all S0 checks pass; failure stops dependent hybrid rollout rather than introducing a private Pi patch, second RPC protocol, or dependency workaround.
 
+#### Transport retry inside each family's deadline (2026-11-01, audit 1101)
+
+The Jev failures seen in live play (audit 1101, resident chapters, §276.5) were connections that never reached Jev: a fetch
+`TypeError` with cause `UND_ERR_CONNECT_TIMEOUT` after about 10 s on one of the first parallel connections. No 429/529/503
+was seen. Before this, every family whose policy lacked `retryNetwork` (all but four) reported it at once as
+`service_error`, so a single failed connection lost the decision.
+
+- **Default policy for unnamed families.** `createDecisionAdapter` takes `defaultRetryPolicy` for the families its
+  `retryPolicies` does not name. `JEV_TURN_RETRY` is `{maxRetries: 1, backoffInitialMs: 100, backoffMaxMs: 300,
+  retryNetwork: true}`: one more attempt after a failed connection or a 429/503/529 (honouring `Retry-After`).
+  - An attempt that timed out is not retried. Without `attemptTimeoutMs` it has used the whole deadline.
+  - Nothing waits past the call's own deadline. No deadline was raised.
+  - A connection that stalls until the deadline therefore still fails in a 2-4 s family: those deadlines are too tight for
+    a retry after a stall. Only a fast failure (a reset, a refusal, a quick connect error) gets its second attempt.
+- **The reservation never costs the first attempt.** The reservation covers every allowed attempt. When the lease's budget
+  holds one attempt and not its retries, the call gets that one attempt (no retry) instead of `budget_exhausted`.
+- **Families that now retry a failed connection:**
+
+  | Family | Retry policy | Deadline |
+  |---|---|---|
+  | Hybrid turn port: `continuous-action-admission`, `action-admission(-roles)`, `held-act-outcome`, `continuous-turn`, `memory-read` | `defaultRetryPolicy` | 2-4 s; memory-read 45 s |
+  | Session preparation adapter (`context-runtime`), its prescreen fallback and the Keeper's support lookup (prescreen / support families) | `defaultRetryPolicy` | 1-12 s |
+  | `held-act-outcome` (multi-Keeper adapter), `owned-document-binding`, `person-name-resolution`, `band-recovery`, `untold-name-spans`, `cast-public-figures`, `opening-presence` | `JEV_TURN_RETRY` | 2.5-4 s |
+  | `clue-route` | `retryNetwork` added (`CLUE_ROUTE_RETRY`) | 8 s |
+  | `equipment-writing-surfaces` | `retryNetwork` added (`WRITING_SURFACES_RETRY`) | 30 s; a failure pauses the campaign 10 min |
+  | `setup-input-route`, `setup-card-fields` | `retryNetwork` added; `setup-interest-fit` now in the list | 8 s |
+  | The source reader families | `retryNetwork` added; `source-visual-funnel` now in the list | 20-60 s |
+
+- **Families left unchanged,** each with a fallback the player does not feel: the Keeper's lines go out as written, the
+  incumbent lane decides, or the item is asked again on a later turn.
+  - `action-admission` on the multi-Keeper adapter: the LLM lane decides.
+  - `speech-attribution` (hedged), `keeper-line-purpose`, `time-reading`, `refused-document-outcome`, `scene-placement`,
+    `location-reference`, `setup-name-boundary`, `setup-source-intake`, `post-delivery-verifier`.
+  - The background families: told-*, deal-marks, first sight, kept looks, voice review, memory, window places,
+    `material-screen`.
+  - The task-mode S0 families: off by default.
+  - The four already retrying: speech-edit-facts, source-claim-support, travel-fill, resident-chapters.
+
+Tests: `tests/extension/jev-turn-retry.test.mjs` covers the default policy, the deadline, the budget fallback, and each
+changed family's policy and deadline over a fake transport. The `clue-route` wiring has its own test.
+
 ### Dependencies, publication, ownership, and retirement
 
 SourceRef may be developed and accepted standalone after contract freeze, without Jev or S0; hybrid use remains S0-gated. S1 freezes references, versions/read sets, outcomes, budgets, and dispatcher foundations. S2 requires S0+S1. S3 requires S2. Base S4 memory requires S1+S2 and is independent of PDF/S3. S5 ordinary resolve/apply requires S1+S2 and S3 only when new PDF material is genuinely needed. Promise end-to-end acceptance is the explicit S4+S5 join: S4 supplies promise evidence and S5 supplies canonical effect plus per-promise/per-instance fulfillment receipt; neither slice claims the join alone. S6 depends on S1+S2 and only the evidence/execution slices it consumes. KIC contracts #92-#98 and Keeper-pacing compatibility #99 are dependencies/references under their existing owners, not replacement planners; pacing adds no `progress debt`, `recovery_owed` gate, or second progress judge.

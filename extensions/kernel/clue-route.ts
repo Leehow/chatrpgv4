@@ -13,6 +13,8 @@ import { clueRouteBudget, type ClueRouteBudget } from "../../runtime/jev/host-bu
 import { preparationBudget } from "../../runtime/jev/preparation-budget.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 import { CLUE_ROUTE_FAMILY, clueRouteBindings, clueRouteDecision, runClueRoute, type ClueRouteInput, type ClueRouteResult, type ClueRouteRoll } from "../../runtime/jev/clue-route.ts";
+/** One more attempt on a failed connection (audit 1101) or a 429/503/529, inside the route's 8 s deadline. */
+export const CLUE_ROUTE_RETRY = {maxRetries: 1, backoffInitialMs: 250, backoffMaxMs: 1_000, retryNetwork: true};
 
 type Row = Record<string, unknown>;
 
@@ -70,7 +72,7 @@ async function ask(input: ClueRouteInput, deps: ClueRouteDeps, deadlineAt: numbe
 	const signal = deps.signal ?? new AbortController().signal;
 	try {
 		accounting = preparationBudget({
-			decision: createDecisionAdapter({env: deps.env, maxConcurrency: 1, retryPolicies: {[CLUE_ROUTE_FAMILY]: {maxRetries: 1, backoffInitialMs: 250, backoffMaxMs: 1_000}}}),
+			decision: createDecisionAdapter({env: deps.env, maxConcurrency: 1, retryPolicies: {[CLUE_ROUTE_FAMILY]: CLUE_ROUTE_RETRY}}),
 			campaign: input.campaign, deadlineAt, signal, owner: CLUE_ROUTE_FAMILY, goal,
 		});
 		lease = new TaskLease({owner: CLUE_ROUTE_FAMILY, goal, scope: bindings.scope, capabilities: ["decision"], readSet: bindings.readSet, signal,

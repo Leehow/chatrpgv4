@@ -215,7 +215,7 @@ export async function createSourceReaderDriver(options:{cwd:string;env:NodeJS.Pr
  const reviewDraft=Array.isArray(task.required_review)?JSON.parse(await readFile(join(cwd,'draft.json'),'utf8')):null;
  const traceFile=join(cwd,'source-driver.jsonl');
  const trace=(value:Record<string,unknown>)=>appendFileSync(traceFile,compact({at:new Date().toISOString(),...value}));
- const adapter=options.adapter??createDecisionAdapter({apiKey,env:options.env,maxConcurrency:8,retryPolicies:Object.fromEntries(['source-need-answered','source-guidance-sections','source-guidance-child-sections','source-search-scope','source-page-lead','source-need-kind','source-reference-spans','source-reference-entrances','source-reference-entrance-evidence','source-reference-era','source-reference-guide-check','source-reference-place'].map(family=>[family,{maxRetries:1,backoffInitialMs:250,backoffMaxMs:1000}])),trace:event=>trace({kind:'jev_transport',event})});
+ const adapter=options.adapter??createDecisionAdapter({apiKey,env:options.env,maxConcurrency:8,retryPolicies:Object.fromEntries(['source-need-answered','source-guidance-sections','source-guidance-child-sections','source-search-scope','source-page-lead','source-need-kind','source-reference-spans','source-reference-entrances','source-reference-entrance-evidence','source-reference-era','source-reference-guide-check','source-reference-place','source-visual-funnel'].map(family=>[family,{maxRetries:1,backoffInitialMs:250,backoffMaxMs:1000,retryNetwork:true}])),trace:event=>trace({kind:'jev_transport',event})});
  let sourceRequest:((request:SourceRequest)=>Promise<void>)|undefined;
  let submitReference:((text:string,signal:AbortSignal)=>Promise<any>)|undefined;
  let sourcePreview:((event:any)=>Promise<any>)|undefined;

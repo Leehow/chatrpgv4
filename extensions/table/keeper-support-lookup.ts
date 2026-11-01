@@ -1,5 +1,5 @@
 /** Explicit Keeper retrieval through the same preparation implementation as automatic preload. */
-import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
+import {createDecisionAdapter,JEV_TURN_RETRY} from '../../runtime/jev/decision-adapter.ts';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
 import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {preparationBudget,preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
@@ -27,7 +27,7 @@ export async function lookupKeeperSupport(input:{campaign:string;query:string;ca
         })]);}finally{signal.removeEventListener('abort',abort);}
     };
     const budget=preparationBudget({campaign:input.campaign,deadlineAt,signal,parent:input.parent,
-        decision:input.decision??createDecisionAdapter({env,maxConcurrency:4})});
+        decision:input.decision??createDecisionAdapter({env,maxConcurrency:4,defaultRetryPolicy:JEV_TURN_RETRY})});
     try{
         const {_context,...capsule}=object(await call('table.capsule',{rehydrate:true})),binding=bindingOf(_context);
         if(!binding||binding.campaign!==input.campaign)throw new KernelError({code:'needs',message:'The current support scope is unavailable',details:{reason:'support_scope_unavailable'}});

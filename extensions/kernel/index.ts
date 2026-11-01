@@ -103,7 +103,7 @@ import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { disableStepThinking, isFirstStepOfTurn, STEP_READS } from "./first-step-thinking.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { deliveryProse, isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
-import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
+import { createDecisionAdapter, JEV_TURN_RETRY, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
 import { DEAL_MARKS_DECISION_FAMILY, decideDeals, type DealJobInput } from "../../runtime/jev/deal-marks.ts";
 import { FORCED_CHOICE_CUE_MIN, FORCED_CHOICE_OUTCOME_MAX, type ForcedChoiceCueReview, type ForcedPlayerChoice } from "../../runtime/jev/forced-resolution.ts";
 import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
@@ -1961,9 +1961,8 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 	const decision = (): DecisionPort | undefined => {
 		if (!readJevApiKey(process.env)) return undefined;
 		return untoldSpanPort ??= createDecisionAdapter({ env: process.env, maxConcurrency: 4, retryPolicies: {
-			[NAME_SPANS_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 },
-			[PUBLIC_FIGURES_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 },
-			[OPENING_PRESENCE_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } });
+			// Audit 1101: one more attempt on a failed connection or a 429/503/529, inside each family's own wait.
+			[NAME_SPANS_FAMILY]: JEV_TURN_RETRY, [PUBLIC_FIGURES_FAMILY]: JEV_TURN_RETRY, [OPENING_PRESENCE_FAMILY]: JEV_TURN_RETRY } });
 	};
 	const publicFigureJudge = createPublicFigureJudge({ record: (row) => void record(row), decision });
 	const untoldSpanJudge = createUntoldSpanJudge({ record: (row) => void record(row), decision, publicFigures: publicFigureJudge });
@@ -3627,7 +3626,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         .map(receipt => singleKeeper ? JSON.stringify(receipt) : receiptLine(receipt)) : [];
       result = await boundary.check({draft, receipts, current: sameInput, signal: signal ? AbortSignal.any([signal, state.lanes.signal]) : state.lanes.signal,
         deadlineAt: parent?.deadlineAt, correctionAvailable: !state.steeredThisTurn, strict: singleKeeper,
-        decision: singleKeeper && turnDecisionPort ? turnDecisionPort : createDecisionAdapter({retryPolicies: {[HELD_ACT_OUTCOME_FAMILY]: {maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000}}})});
+        decision: singleKeeper && turnDecisionPort ? turnDecisionPort : createDecisionAdapter({retryPolicies: {[HELD_ACT_OUTCOME_FAMILY]: JEV_TURN_RETRY}})});
     } catch (error) {
       if (isKernelError(error) && error.details?.reason === 'held_act_outcome_stale') throw error;
       result = {status: 'unclear', reason: 'outcome_validation_unavailable', attempt: boundary.attempts};
@@ -3739,7 +3738,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 			const binding = documentBindingScope(input), deadlineAt = Math.min(Date.now()+4_000,parent?.deadlineAt??Infinity);
 			const outer = signal ?? new AbortController().signal;
 			const combined = parent ? AbortSignal.any([outer,parent.signal]) : outer;
-			const accounting = preparationBudget({decision:createDecisionAdapter({retryPolicies:{[DOCUMENT_BINDING_FAMILY]:{maxRetries:0,backoffInitialMs:100,backoffMaxMs:1_000}},
+			const accounting = preparationBudget({decision:createDecisionAdapter({retryPolicies:{[DOCUMENT_BINDING_FAMILY]:JEV_TURN_RETRY},
 				trace:jevFailureTelemetry(row=>{void record(row);})}),campaign:state.campaign,deadlineAt,signal:combined,
 				...(parent?{parent}:{}),owner:DOCUMENT_BINDING_FAMILY,goal:'Bind the already chosen document addition to its existing carrier'});
 			const lease = new TaskLease({owner:DOCUMENT_BINDING_FAMILY,goal:'Bind the selected append target',...binding,capabilities:['decision'],signal:combined,
@@ -5699,7 +5698,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 				const bindings = personResolutionBindings(input);
 				accounting = preparationBudget({
 					decision: createDecisionAdapter({ env, maxConcurrency: 4, retryPolicies: {
-						[PERSON_RESOLUTION_FAMILY]: { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 } } }),
+						[PERSON_RESOLUTION_FAMILY]: JEV_TURN_RETRY } }),
 					campaign: state.campaign, deadlineAt, signal: bound, ...(parent ? { parent } : {}),
 					owner: PERSON_RESOLUTION_FAMILY, goal: "Resolve a named person against the scene's known people",
 				});

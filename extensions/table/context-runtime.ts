@@ -1,6 +1,6 @@
 import {locationToolDeclarations,projectLocationInspections,locationIdentityContext,locationCommandGrammar} from './location-context.ts';
 import {keeperCapsuleHead,keeperCapsuleMessage} from '../../runtime/instruction-audience.ts';
-import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
+import {createDecisionAdapter,JEV_TURN_RETRY} from '../../runtime/jev/decision-adapter.ts';
 import {readJevApiKey,readJevPreselectAllowanceMs} from '../jev/agent/config.js';
 import {preparationBudget,preparationProviderBudget} from '../../runtime/jev/preparation-budget.ts';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
@@ -132,7 +132,7 @@ export function installContextPolicy(pi: ExtensionAPI, writeTelemetry: (row: Row
     const decision=()=>{
         if(!readJevApiKey(sessionEnv))return undefined;
         const capacity=Number(sessionEnv.PI_COC_JEV_CONCURRENCY??16);
-        return sharedAdapter??=createDecisionAdapter({env:sessionEnv,maxConcurrency:Number.isInteger(capacity)&&capacity>0?Math.min(capacity,16):16});
+        return sharedAdapter??=createDecisionAdapter({env:sessionEnv,defaultRetryPolicy:JEV_TURN_RETRY,maxConcurrency:Number.isInteger(capacity)&&capacity>0?Math.min(capacity,16):16});
     };
     const beginPreparationAllowance=()=>{
         const port=decision();

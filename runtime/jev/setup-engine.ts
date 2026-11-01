@@ -242,7 +242,7 @@ export function createSetupEngine(options: SetupEngineOptions): {runDriver: Sess
   };
   const jev: DecisionPort | undefined = options.decision === null ? undefined
     : options.decision ?? (readJevApiKey(options.env) ? createDecisionAdapter({env: options.env, maxConcurrency: 2, trace: jevFailureTelemetry(record),
-      retryPolicies: Object.fromEntries([SETUP_ROUTE_FAMILY, SETUP_FIELDS_FAMILY].map(family => [family, {maxRetries: 1, backoffInitialMs: 200, backoffMaxMs: 800}]))}) : undefined);
+      retryPolicies: Object.fromEntries([SETUP_ROUTE_FAMILY, SETUP_FIELDS_FAMILY, SETUP_INTEREST_FAMILY].map(family => [family, {maxRetries: 1, backoffInitialMs: 200, backoffMaxMs: 800, retryNetwork: true}]))}) : undefined);
   const fullTool = () => executor?.tool ?? 'setup';
   const setTools = (names: string[]) => { try { api?.setActiveTools?.(names); } catch { /* No tool surface yet. */ } };
 

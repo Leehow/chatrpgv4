@@ -22,7 +22,7 @@ import { bindingOf, customMessage, PRESCREEN_TYPE, CLERK_TYPE, type ContextBindi
 import {createCanonicalOperationDispatcher,type HostOperationContext} from '../../extensions/kernel/canonical-operation-dispatcher.ts';
 import {KernelError} from '../../extensions/kernel/client.ts';
 import {readJevApiKey} from '../../extensions/jev/agent/config.js';
-import {createDecisionAdapter} from './decision-adapter.ts';
+import {createDecisionAdapter, JEV_TURN_RETRY} from './decision-adapter.ts';
 import {createMemoryReadDomain,MEMORY_READ_POLICY_VERSION} from './memory-read-domain.ts';
 import {createMemoryReadOwner,presentMemoryEvidence,memoryReadBudget,MEMORY_READ_STEP_LIMIT} from './memory-read-owner.ts';
 import {TaskRuntime,type TaskRecord} from './task-runtime.ts';
@@ -410,7 +410,7 @@ export function createHybridEngine(options: HybridEngineOptions): {runDriver: Se
   const queries=new Set<AbortController>();
   let steer:Row|undefined;
   const record=(row:Row)=>{try{(options.record??bridge?.record)?.(row);}catch{/* Telemetry is observational. */}};
-  const decision=options.decision===undefined?(readJevApiKey(options.env)?createDecisionAdapter({env:options.env}):undefined):options.decision??undefined;
+  const decision=options.decision===undefined?(readJevApiKey(options.env)?createDecisionAdapter({env:options.env,defaultRetryPolicy:JEV_TURN_RETRY}):undefined):options.decision??undefined;
   const bindMemorySearch=()=>{
     for(const query of queries)query.abort('memory_query_owner_closed');
     const bound=bridge,owner=gateway;

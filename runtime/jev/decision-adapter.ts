@@ -82,6 +82,11 @@ export interface DecisionAdapterOptions {
   fetcher?: typeof fetch;
   maxConcurrency?: number;
   retryPolicies?: Record<string, RetryPolicy>;
+  /**
+   * The policy of a family `retryPolicies` does not name (otherwise no retry). A shared adapter that serves many families
+   * on the turn path (the session's preparation adapter, the hybrid turn port) passes JEV_TURN_RETRY.
+   */
+  defaultRetryPolicy?: RetryPolicy;
   trace?: (event: AdapterTrace) => void;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   now?: () => number;
@@ -173,6 +178,13 @@ function hedgedSend(send: (signal: AbortSignal) => Promise<Response>, signal: Ab
     timer.unref?.();
   });
 }
+/**
+ * One more attempt after a failed connection (a fetch TypeError such as undici's UND_ERR_CONNECT_TIMEOUT or a reset) or a
+ * 429/503/529, 100 ms later, inside the call's own deadline. Audit 1101: the Jev failures were connections that never
+ * reached Jev, which every family without `retryNetwork` reported as `service_error` at once. An attempt that timed out
+ * is not retried here: without an attempt timeout it has used the whole deadline.
+ */
+export const JEV_TURN_RETRY: RetryPolicy = { maxRetries: 1, backoffInitialMs: 100, backoffMaxMs: 300, retryNetwork: true };
 function policy(value: RetryPolicy | undefined): RetryPolicy {
   const result = value ?? { maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000 };
   if (!Number.isSafeInteger(result.maxRetries) || result.maxRetries < 0 || result.maxRetries > 5
@@ -321,14 +333,16 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
         return unavailable(batch, code, false, now() - began);
       }
       trace({ kind: 'packing', batchId: batch.id, estimate: packed.estimate, cache: 'disabled' });
-      const retry = policy(options.retryPolicies?.[batch.family]);
-      const maxAttempts = retry.maxRetries + 1;
+      const retry = policy(options.retryPolicies?.[batch.family] ?? options.defaultRetryPolicy);
+      let maxAttempts = retry.maxRetries + 1;
       // §128.3.1: at most one hedge per attempt, reserved as one more request each.
-      const maxRequests = maxAttempts * (retry.hedgeAfterMs === undefined ? 1 : 2);
-      const inputBound = packed.estimate.totalUpperBound * maxRequests;
+      const perAttempt = retry.hedgeAfterMs === undefined ? 1 : 2;
       const outputPerAttemptBound = packed.estimate.responseUpperBound;
-      const outputBound = outputPerAttemptBound * maxRequests;
-      const costBound = inputBound * JEV_INPUT_USD_PER_MILLION / 1_000_000;
+      const bounds = (attempts: number) => {
+        const inputBound = packed.estimate.totalUpperBound * attempts * perAttempt;
+        return { inputTokens: inputBound, outputTokens: outputPerAttemptBound * attempts * perAttempt,
+          costUsd: inputBound * JEV_INPUT_USD_PER_MILLION / 1_000_000, actions: 1 };
+      };
       let releaseConcurrency: (() => void) | undefined;
       try {
         releaseConcurrency = await semaphore.acquire(lease.signal);
@@ -337,7 +351,14 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
       }
       let reservation: Awaited<ReturnType<TaskLease['reserveQueued']>>;
       try {
-        reservation = await lease.reserveQueued({ inputTokens: inputBound, outputTokens: outputBound, costUsd: costBound, actions: 1 });
+        try { reservation = await lease.reserveQueued(bounds(maxAttempts)); }
+        catch (error) {
+          // A lease whose budget holds one attempt and not its retries still gets that one attempt (audit 1101: a retry
+          // policy must never turn an answerable call into budget_exhausted).
+          if (maxAttempts === 1 || lease.signal.aborted || now() >= lease.context.budget.deadlineAt) throw error;
+          reservation = await lease.reserveQueued(bounds(1));
+          maxAttempts = 1;
+        }
       } catch {
         releaseConcurrency(); releaseConcurrency = undefined;
         const code = now() >= lease.context.budget.deadlineAt ? 'timeout' : lease.signal.aborted ? 'cancelled' : 'budget_exhausted';

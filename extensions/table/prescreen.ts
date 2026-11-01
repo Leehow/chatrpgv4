@@ -1,5 +1,5 @@
 /** Shared request-local Jev evidence preparation for preload and explicit Keeper lookup. Never action authority. */
-import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
+import {createDecisionAdapter,JEV_TURN_RETRY} from '../../runtime/jev/decision-adapter.ts';
 import {readJevApiKey,readJevPreselectEnabled} from '../jev/agent/config.js';
 import type {DecisionPort} from '../../runtime/jev/decision-port.ts';
 import {TaskLease,type TaskClock} from '../../runtime/jev/task-context.ts';
@@ -395,7 +395,7 @@ export async function prepareKeeperSupport(input:KeeperSupportInput&{request?:Su
         for(const locator of input.alreadySupplied??[])supplied.locators.add(locator);
         const discoveryBegan=now();
         const scope={owner:`campaign:${input.campaign}`,campaign:input.campaign,worldline:input.binding.worldline,loop:input.binding.loop,audience:'keeper' as const};
-        const adapter=input.decision??createDecisionAdapter({env,maxConcurrency:4});
+        const adapter=input.decision??createDecisionAdapter({env,maxConcurrency:4,defaultRetryPolicy:JEV_TURN_RETRY});
         const providerBudget=input.providerBudget??preparationProviderBudget();
         let leaseBudget={remainingInputTokens:providerBudget.inputTokens,remainingOutputTokens:providerBudget.outputTokens,
             remainingCostUsd:providerBudget.costUsd,remainingActions:providerBudget.actions};

@@ -13,7 +13,7 @@
  * `askBand` is also the one place the shadow lane asks its questions (§138.8, BR-04): the band of the Keeper's own
  * `time` or `damage` after it landed, under its own family and lease, recorded and never executed.
  */
-import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
+import {createDecisionAdapter, JEV_TURN_RETRY} from '../../runtime/jev/decision-adapter.ts';
 import {preparationBudget} from '../../runtime/jev/preparation-budget.ts';
 import {TaskLease} from '../../runtime/jev/task-context.ts';
 import type {Json} from '../../runtime/jev/contracts.ts';
@@ -160,7 +160,7 @@ export async function askBand(ask: BandAsk, question: RecoveryQuestion | ShadowQ
   let lease: TaskLease | undefined, accounting: ReturnType<typeof preparationBudget> | undefined;
   try {
     accounting = preparationBudget({
-      decision: ask.decision ?? createDecisionAdapter({env: ask.env, maxConcurrency: 2, retryPolicies: {[family]: {maxRetries: 0, backoffInitialMs: 100, backoffMaxMs: 1_000}}}),
+      decision: ask.decision ?? createDecisionAdapter({env: ask.env, maxConcurrency: 2, retryPolicies: {[family]: JEV_TURN_RETRY}}),
       campaign: ask.campaign, deadlineAt, signal, ...(ask.parent ? {parent: ask.parent} : {}),
       owner: family, goal,
     });
