@@ -52,3 +52,9 @@ anchor worktree（`chatrpgv4-wt-v4-anchor`，章节定位）正在重做"战役 
 - 是否值得做：§14.19.11 修好以后，这只剩玩家主动改主意这一种情况，而"另开一张桌"本身就能解决。
 
 ## Comments
+
+## 补充（2026-11-01，§14.19.10 fork 校验之后）
+
+`ModuleStore.module()` 读战役 fork 时，`anchorForkOpening` 会拿 fork 的 `opening_choice` 和 `campaign.json` 的 `opening_scene`
+比对，不一致以战役为准（并记 `fork_opening_mismatch` 遥测）。所以这里的改选方法必须同时改 `campaign.json` 的
+`opening_scene`（以及 guidance key 和世界文件），只改 fork 的 `opening_choice` 会在下一次读取时被战役的开场覆盖回去。
