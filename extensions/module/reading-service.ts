@@ -35,7 +35,7 @@ import {SKELETON_VERSION} from './lean-skeleton.ts';
 import {cardBlocks, checkedCard} from './mechanics-card.ts';
 import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
 import {singleCall, normalName, titleOnlyFocus} from './lean-skeleton.ts';
-import {bookChapters, CHAPTER_NOTE, chapterAbsent, chapterHolding, chapterView, inChapter, noteChapterModule, placeChapter, placesParty, scopeSpans, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
+import {bookChapters, CHAPTER_NOTE, chapterAbsent, chapterHolding, chapterView, inChapter, noteChapterModule, placeChapter, placesParty, scopeSpans, setChapterResolver, unscoped, WHOLE_BOOK, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
 import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, placePages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
@@ -373,7 +373,7 @@ function atPointer(draft: Row, pointer: unknown): unknown {
 	return value;
 }
 /** §276.2: the kept-chapter file's format, and the evidence a kept chapter was located from. */
-const KEPT_VERSION = 2;
+const KEPT_VERSION = 3;
 type KeptSource = "opening" | "scene_majority" | "pointer_majority";
 const KEPT_SOURCE = { opening: "opening", scene: "scene_majority", pointer: "pointer_majority" } as const satisfies Record<string, KeptSource>;
 const KEPT_SOURCES: ReadonlySet<unknown> = new Set(Object.values(KEPT_SOURCE));
@@ -573,8 +573,8 @@ export class ReadingService implements ReadingBridge {
 	private chapterBooks = new Map<string, Promise<{ source: ChapterSource; chapters: Chapter[] }>>();
 	/** §276.2: the chapter last resolved per campaign and module, as `{name, first, last}`. */
 	private keptChapters = new Map<string, Chapter>();
-	/** §276.2: the first-chapter stand-in last noted per campaign and module; never kept. */
-	private standIns = new Map<string, string>();
+	/** §276.2: campaigns and modules whose unscoped read (no evidence locates the party) was last noted; never kept. */
+	private standIns = new Set<string>();
 	private chapterFile(campaign: string): string { return join(this.deps.home, ".coc", "chapter-scope", `${createHash("sha256").update(campaign).digest("hex").slice(0, 32)}.json`); }
 	private async keptChapter(campaign: string, mid: string): Promise<Chapter | undefined> {
 		const key = JSON.stringify([campaign, mid]);
@@ -582,7 +582,10 @@ export class ReadingService implements ReadingBridge {
 		// §276.2: a kept entry counts only in the versioned format and with the evidence it was located from. An entry with no
 		// version or no known source (written before 2026-11-01, when a first-chapter stand-in was kept too) is void: the next
 		// read relocates from evidence and overwrites it.
-		try { const file = JSON.parse(await readFile(this.chapterFile(campaign), "utf8")), kept = file?.version === KEPT_VERSION ? file.modules?.[mid] : undefined;
+		// Version 2 entries stand except those located from the opening: the opening's pages counted as evidence before the
+		// resident threshold (2026-11-01, live7 du: an opening anchor on the title page and the keeper's background was kept).
+		try { const file = JSON.parse(await readFile(this.chapterFile(campaign), "utf8")),
+				kept = file?.version === KEPT_VERSION || file?.version === 2 && file.modules?.[mid]?.source !== "opening" ? file.modules?.[mid] : undefined;
 			if (kept && typeof kept.name === "string" && Number.isSafeInteger(kept.first) && Number.isSafeInteger(kept.last) && KEPT_SOURCES.has(kept.source)) {
 				const chapter = { name: kept.name, first: kept.first, last: kept.last };
 				this.keptChapters.set(key, chapter); return chapter; } }
@@ -647,8 +650,9 @@ export class ReadingService implements ReadingBridge {
 	}
 	/**
 	 * §276.2: the chapter the party is in: the one holding the anchor page of its scene's book pages; for a scene the table
-	 * made, the chapter kept for the campaign; then the campaign's opening scene's; then the first chapter, which is never
-	 * kept. Undefined only without a campaign or a bound document.
+	 * made, the chapter kept for the campaign; then the campaign's opening scene's, when one of its pages stands outside every
+	 * resident chapter; with no evidence, the whole book unscoped (`resolved: "none"`), which is never kept. Undefined only
+	 * without a campaign or a bound document.
 	 */
 	async chapterScope(mid: string, campaign: string | undefined, signal?: AbortSignal): Promise<ChapterScope | undefined> {
 		if (campaign === undefined) return undefined;
@@ -685,22 +689,27 @@ export class ReadingService implements ReadingBridge {
 			const start = String(status?.campaign_opening || status?.opening?.start_scene || "");
 			// The authored opening is where play starts: when its pages hold no majority, the chapter its first page stands in
 			// (audit 1031: openings on [4,5], [4,14,17], [14..18] fell through to the keeper's background as the first chapter).
-			const pages = await this.graphPages(campaign, start, "opening").catch(() => [] as number[]);
+			const read = await this.graphPages(campaign, start, "opening").catch(() => [] as number[]);
+			// Not enough evidence, do not locate: an opening whose pages all stand in resident chapters (the book's title page and
+			// keeper's background, read from any chapter) says nothing about where play is (live7 du: the opening anchor on [2,3]).
+			const pages = read.some(page => !residents.some(own => page >= own.first && page <= own.last)) ? read : [];
 			chapter = located(pages) ?? (pages.length ? chapterHolding(book.chapters, Math.min(...pages)) : undefined);
 		}
-		if (!chapter) { resolved = "first"; chapter = book.chapters.find(row => row.first > 1 || book.chapters.length === 1) ?? book.chapters[0]; }
-		// Only a chapter located from evidence (the scene's or the pointer index's pages, the opening) is kept: the first chapter
-		// is a stand-in until a later read has evidence, never the kept chapter that would hold the party there (live 1031: a
-		// first-chapter fallback kept at the opening resolved every later read `kept`).
+		// With no evidence the book is read unscoped: the whole book, no chapter restriction (the first chapter was a stand-in
+		// that restricted reading to the keeper's background while the party played elsewhere).
+		if (!chapter) { resolved = "none"; chapter = { name: WHOLE_BOOK, first: 1, last: pageCount }; }
+		// Only a chapter located from evidence (the scene's or the pointer index's pages, the opening) is kept: an unscoped read
+		// lasts until a later read has evidence, never the kept chapter (live 1031: a first-chapter fallback kept at the opening
+		// resolved every later read `kept`).
 		const before = await this.keptChapter(campaign, mid), key = JSON.stringify([campaign, mid]);
-		const changed = resolved === "first" ? this.standIns.get(key) !== `${chapter.first}-${chapter.last}`
+		const changed = resolved === "none" ? !this.standIns.has(key)
 			: !before || before.first !== chapter.first || before.last !== chapter.last;
-		if (resolved === "first") this.standIns.set(key, `${chapter.first}-${chapter.last}`);
+		if (resolved === "none") this.standIns.add(key);
 		else { this.standIns.delete(key); if (changed) await this.keepChapter(campaign, mid, chapter, KEPT_SOURCE[resolved as keyof typeof KEPT_SOURCE]).catch(() => undefined); }
 		if (changed) this.note({ lane: "reading", event: "chapter_scope", module_id: mid, campaign, chapter: chapter.name, first: chapter.first, last: chapter.last,
 			resolved, source: book.source, ...(before ? { previous: before.name } : {}) });
 		// §276.5: the reference chapters read from any chapter; the current one is never its own resident.
-		const current = chapter, resident = residents.filter(own => own.first !== current.first || own.last !== current.last);
+		const current = chapter, resident = resolved === "none" ? [] : residents.filter(own => own.first !== current.first || own.last !== current.last);
 		const scope: ChapterScope = { ...chapter, source: book.source, resolved, ...(resident.length ? { resident } : {}) };
 		this.lastScopes.set(mid, scope);
 		return scope;
@@ -762,13 +771,13 @@ export class ReadingService implements ReadingBridge {
 		if (chapter && asked.pages.length && !pages.length) {
 			this.note({ lane: "reading", event: "book_pages", module_id: mid, campaign, pages: [], outside_chapter: asked.pages, chapter: chapter.name });
 			const receipt = chapterAbsent(chapter, `pages ${asked.pages.join(", ")}`, ["pages"], snapshot.file_sha256);
-			return { state: "ready", source_answer: { ...receipt, answer: `Pages ${asked.pages.join(", ")} are outside ${chapter.source === "none" ? "the book" : `the current chapter (${chapter.name}, pages ${chapter.first}-${chapter.last})`
+			return { state: "ready", source_answer: { ...receipt, answer: `Pages ${asked.pages.join(", ")} are outside ${unscoped(chapter) ? "the book" : `the current chapter (${chapter.name}, pages ${chapter.first}-${chapter.last})`
 				+ (chapter.resident?.length ? ` and the book's reference chapters (${chapter.resident.map(own => `${own.name}, pages ${own.first}-${own.last}`).join("; ")})` : "")}. `
 				+ "The party is not there; for this table the book has nothing more on it. Play on from the table's memory and fill in what is needed. Do not look in other chapters." } };
 		}
 		if (!pages.length) {
 			this.note({ lane: "reading", event: "book_pages", module_id: mid, campaign, pages: [], contents: contents.length, ...(chapter ? { chapter: chapter.name } : {}) });
-			const chaptered = !!chapter && chapter.source !== "none";
+			const chaptered = !!chapter && !unscoped(chapter);
 			const missing = typeof params.section === "string" ? `No contents row ${chaptered ? "of the current chapter " : ""}matches ${params.section}. ` : "";
 			return { state: "ready", source_answer: { status: "contents", authority: "original-source-excerpts", prepared: false, source_sha256: snapshot.file_sha256,
 				answer: `${missing}${chaptered ? `The current chapter's contents (${chapter!.name}, physical pages ${chapter!.first}-${chapter!.last})${chapter!.resident?.length ? ", with the book's reference chapters" : ""}` : "The book's contents (physical pages)"}:\n${contentsLines(contents, PAGE_BOUNDS.contents).join("\n")}`,
@@ -787,7 +796,7 @@ export class ReadingService implements ReadingBridge {
 			...(chapter ? { chapter: chapterView(chapter), ...(asked.pages.length > pages.length ? { outside_chapter: { pages: asked.pages.filter(page => !pages.includes(page)) } } : {}) }
 				: { coverage: { partial: true, visual: "unassessed", unavailable_pages: pages.filter(page => !excerpts.some(span => span.page === page)) } }),
 			note: "Exact original pages the host cut from the book, not a generated answer. A page may hold Keeper-only material. "
-				+ (chapter ? CHAPTER_NOTE : BOOK_ABSENCE_RULE) } };
+				+ (chapter && !unscoped(chapter) ? CHAPTER_NOTE : BOOK_ABSENCE_RULE) } };
 	}
 	/**
 	 * §263.5: the approved book passages of a module in scope for this capsule, sliced from the host's blocks. Read
@@ -1453,7 +1462,7 @@ export class ReadingService implements ReadingBridge {
 				: `The book has nothing on ${focus} for here. ${BOOK_ABSENCE_RULE}`,
 			excerpts, source_refs: excerpts.map(span => ({ source_id: "pdf:" + mid, pdf_index: span.page - 1 })),
 			...(chapter ? { chapter: chapterView(chapter) } : { coverage: { partial: true, visual: "unassessed", unavailable_pages: [] } }),
-			note: `Exact original pages the host sliced for this focus (its skeleton index and a text search), not a generated answer. Read them for what was asked; a page may hold Keeper-only material. ${chapter ? CHAPTER_NOTE : BOOK_ABSENCE_RULE}` } };
+			note: `Exact original pages the host sliced for this focus (its skeleton index and a text search), not a generated answer. Read them for what was asked; a page may hold Keeper-only material. ${chapter && !unscoped(chapter) ? CHAPTER_NOTE : BOOK_ABSENCE_RULE}` } };
 	}
 
 	/**
