@@ -54282,8 +54282,13 @@ it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's p
 lookup row's `kind` and `properties` (`placesParty`, `runtime/chapter-scope.ts`): a `scene` or `location`; never the module's
 root (`kind: module`) or any other kind. An opening's reading anchor -- the scene the source reference mints for an entry,
 marked `is_entrance` and `source_reference_anchor` -- is the span of book pages where that opening is read, not a place: its
-pages decide as the campaign's opening, never as the scene the party is in, which falls through to the pointer index, the
-kept chapter, then the opening. A place minted from the source reference (`source_reference_anchor` alone) and a read
+pages decide as the campaign's opening, never as the scene the party is in. A scene that is such an anchor places nothing by
+its graph pages or by its name in the pointer index: the read goes to the kept chapter, then the campaign's opening, judged by
+the opening rule below (audit integ-1101 bm: with the anchor skipped only as a scene, the pointer index for the name it is
+shown by, 9 of 17 pages in the character list, located the party there before the opening's own pages [4,6,7], two of them in
+the flight chapter, could decide; dg's opening camp on [8,9] landed right only because its pointer pages agreed). Kept before
+opening keeps the live7 du fix: a table whose `where.scene` stays on the anchor while the party has moved on keeps the chapter
+its places located. A place minted from the source reference (`source_reference_anchor` alone) and a read
 entrance (`is_entrance` alone) are places. Live7 du-1101a/b: both tables opened on the first entry, the anchor on the title
 page and the keeper's background (pages 2-3); the Keeper played the Arkham cemetery inside that opening scene for eight turns
 without a move (the scene follows moves, §1.2.8: the opening locus was kept), the scene branch put the party in the background
@@ -54296,12 +54301,17 @@ register the place where the party actually is as a scene and move the party the
 normal play carries nothing. It is a hint, not a gate: whether the party's locus becomes a scene stays the Keeper's call
 (§1.2.8 scene commitment). Live7 du-1101a/b: eight turns at the Arkham cemetery inside the anchor without a move.
 
-**Not enough evidence, do not locate (2026-11-01).** The opening's pages count as evidence only when at least one of them
-stands outside every resident chapter (§276.5). An opening whose pages all stand in resident chapters (du: the anchor on the
-title page and the keeper's background, pages 2-3) says nothing about where play is, and the opening branch locates nothing.
-This does not exclude resident chapters from counting: a place's or an opening's pages still count in whatever chapter they
-stand, once the opening is evidence at all. With no resident verdict (none asked yet, or an ask Jev could not answer) every
-page is outside every resident chapter and the opening decides as before.
+**An opening read in resident chapters starts play after them (2026-11-01).** The opening rule (`openingChapter`,
+`runtime/chapter-scope.ts`): when at least one of the opening's pages stands outside every resident chapter (§276.5), its
+pages decide, the chapter most of them stand in, else the chapter of its first page. An opening whose pages all stand in
+resident chapters (du: the anchor on the title page and the keeper's background, pages 2-3) says where the opening is read,
+not where it is played: play starts in the first chapter, in page order, after the opening's last page that is not resident,
+resolved `opening` and kept with source `opening`; a later scene's or pointer's majority overrides it as usual, a scene the
+table made keeps it. Only when no non-resident chapter follows the opening does it locate nothing. This does not exclude
+resident chapters from counting: once the pages are evidence they count in whatever chapter they stand; the rule only decides
+where an opening with no non-resident evidence starts. Purely structural (pages, chapter spans, the resident verdict). With
+no resident verdict (none asked yet, or an ask Jev could not answer) every page is outside every resident chapter and the
+opening decides by its pages. The `chapter_scope` note carries `opening_rule: "after_resident"` when the second branch decided.
 
 **No evidence: the book is read unscoped (2026-11-01).** When no scene, pointer, kept chapter or opening locates the party,
 the scope is the whole book, `{name: "whole book", first: 1, last: <page count>, resolved: "none"}`, with no resident
