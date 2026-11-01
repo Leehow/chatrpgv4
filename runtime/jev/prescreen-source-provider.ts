@@ -615,7 +615,8 @@ export async function preparePrescreenSources(input:PrescreenSourceInput):Promis
   };
   const result:PrescreenSourceResult={candidates,readSet,checkpoint,checkpointFor,check,reselect,nativeQualificationActions,qualifyNative,passages:passageOffers,coverage:{checked_answers:{inspected:snapshot.checked_answers.length,emitted:candidates.filter(row=>row.authority==='reviewed_source').length,
     omitted:checkedOmitted,invalid:snapshot.checked_answers_invalid},native:{searched_ranges:rangeSet(searched,snapshot.page_count),unsearched_ranges:complement(searched,snapshot.page_count),
-      materialized_pages:[...materialized].sort((a,b)=>a-b),unmaterialized_pages:Array.from({length:snapshot.page_count},(_,i)=>i+1).filter(page=>!materialized.has(page)),
+      materialized_pages:[...materialized].sort((a,b)=>a-b),// §276.3: only the chapter's pages (with the resident chapters') are left to read on; a book without a chapter scope is all its pages.
+      unmaterialized_pages:Array.from({length:snapshot.page_count},(_,i)=>i+1).filter(page=>inScope(page)&&!materialized.has(page)),
       empty_pages:emptyPages,error_pages:errorPages,candidate_omitted:candidateOmitted,material_omitted:0,
       transcript_pages:[...transcribed].sort((a,b)=>a-b),paragraph_pages:[...paragraphed].sort((a,b)=>a-b),
       continuation_pages:[...continued].sort((a,b)=>a-b),located_pages:entityPages.filter(page=>pages.includes(page)),

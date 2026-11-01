@@ -35,7 +35,7 @@ import {SKELETON_VERSION} from './lean-skeleton.ts';
 import {cardBlocks, checkedCard} from './mechanics-card.ts';
 import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
 import {singleCall, normalName, titleOnlyFocus} from './lean-skeleton.ts';
-import {bookChapters, CHAPTER_NOTE, chapterAbsent, chapterView, inChapter, noteChapterModule, openingAnchor, openingChapter, placeChapter, placesParty, scopeSpans, setChapterResolver, unscoped, WHOLE_BOOK, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
+import {bookChapters, CHAPTER_NOTE, chapterAbsent, chapterView, inChapter, noteChapterModule, openingAnchor, openingChapter, placeChapter, placesParty, rowsInScope, scopeSpans, setChapterResolver, unscoped, WHOLE_BOOK, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
 import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, placePages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
@@ -831,7 +831,10 @@ export class ReadingService implements ReadingBridge {
 				cached = { stamp, rows: withForms(approvedPassages(release, book.sha, blocks), skeleton) };
 				this.bookCache.set(mid, cached);
 			}
-			return passagesInScope(cached.rows, capsule);
+			// §276.3: a passage on a page outside the current chapter and the resident chapters is withheld.
+			const named = passagesInScope(cached.rows, capsule), kept = rowsInScope(named, this.lastScopes.get(mid), row => [row.page]);
+			if (kept.length < named.length) this.note({ lane: "reading", event: "pointer_rows_outside_chapter", module_id: mid, kind: "passages", withheld: named.length - kept.length });
+			return kept;
 		} catch { return []; }
 	}
 	/**
@@ -863,9 +866,12 @@ export class ReadingService implements ReadingBridge {
 				cached = { stamp, skeleton, blocks };
 				this.planCache.set(mid, cached);
 			}
-			const plans = plansInScope(cached.skeleton, capsule);
+			// §276.3: plans citing, and evidence standing on, pages outside the current chapter and the resident chapters are withheld.
+			const named = plansInScope(cached.skeleton, capsule), plans = rowsInScope(named, scope, row => Array.isArray(row.pages) ? row.pages : []);
 			// §263.10: the bounded evidence window rides with the plans as Keeper-only rows.
-			const evidence = cached.blocks ? evidenceInScope(cached.skeleton, cached.blocks, capsule) : [];
+			const seen = cached.blocks ? evidenceInScope(cached.skeleton, cached.blocks, capsule) : [], evidence = rowsInScope(seen, scope, row => [row.page]);
+			if (plans.length < named.length || evidence.length < seen.length) this.note({ lane: "reading", event: "pointer_rows_outside_chapter", module_id: mid, kind: "plans",
+				withheld: named.length - plans.length + seen.length - evidence.length });
 			return [...plans, ...evidence.map(row => ({ kind: "evidence", ...row })), ...pagesRow];
 		} catch { return []; }
 	}

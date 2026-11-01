@@ -56,6 +56,14 @@ const inSpan = (chapter: Chapter, page: unknown): boolean =>
 /** Whether a page may be read: in the chapter, or (for a scope) in one of its resident chapters. */
 export const inChapter = (chapter: Chapter | ChapterScope, page: unknown): boolean =>
 	inSpan(chapter, page) || ((chapter as ChapterScope).resident ?? []).some(own => inSpan(own, page));
+/**
+ * §276.3: the rows (pointer-row passages, plans, evidence) whose cited pages all stand in the scope's chapters; a row that
+ * cites no page is kept. A scope that restricts nothing (none, or unscoped) keeps every row. Pure.
+ */
+export function rowsInScope<T>(rows: T[], scope: ChapterScope | undefined, pagesOf: (row: T) => unknown[]): T[] {
+	if (!scope || unscoped(scope)) return rows;
+	return rows.filter(row => pagesOf(row).every(page => inChapter(scope, page)));
+}
 /** The spans a scope reads, the current chapter first. */
 export const scopeSpans = (scope: Chapter | ChapterScope): Chapter[] => [{ name: scope.name, first: scope.first, last: scope.last }, ...((scope as ChapterScope).resident ?? [])];
 

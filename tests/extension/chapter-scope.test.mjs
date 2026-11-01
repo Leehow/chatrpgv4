@@ -571,3 +571,27 @@ test('§276.2: a scene that is the opening\'s reading anchor is judged by the op
  assert.deepEqual([(scope=await camp.reading.chapterScope('blood-road','c1')).name,scope.first,scope.last,scope.resolved],['Scenes',7,12,'opening']);
  camp.reading.dispose();
 }));
+
+test('§276.3: pointer rows (plans, evidence) cite pages inside the current chapter and resident chapters only; none resolved changes nothing',async()=>lean(async()=>{
+ const root=playtestScratch('chapter-scope','pointer-rows-'),notes=[];
+ const {reading}=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},notes});
+ await mkdir(join(root,'source-skeletons'),{recursive:true});
+ await writeFile(join(root,'source-skeletons',`${SHA}.json`),JSON.stringify({complete:true,
+  entities:[{name:'Diner counter',aliases:[],pages:[6],evidence:[{block:'b8-0-x',use:'plan'},{block:'b4-0-x',use:'plan'}]}],
+  protected_facts:[{names:['Diner counter'],summary:'inside',pages:[7]},{names:['Diner counter'],summary:'outside',pages:[4]},{names:['Diner counter'],summary:'mixed',pages:[7,4]},{names:['Diner counter'],summary:'unpaged'}]}));
+ const capsule={where:{scene:'Diner counter'}};
+ const before=reading.bookPlans('blood-road',capsule);
+ assert.deepEqual(before.filter(row=>row.kind==='protected').map(row=>row.summary).sort(),['inside','mixed','outside','unpaged'],'no scope resolved yet: unchanged');
+ await reading.chapterScope('blood-road','c1');
+ const rows=reading.bookPlans('blood-road',capsule);
+ assert.deepEqual(rows.filter(row=>row.kind==='protected').map(row=>row.summary).sort(),['inside','unpaged'],'a plan citing a page outside the chapter is withheld');
+ assert.deepEqual(rows.filter(row=>row.kind==='evidence').map(row=>row.page),[8],'evidence on a page outside the chapter is withheld');
+ assert(notes.some(row=>row.event==='pointer_rows_outside_chapter'&&row.withheld===3));
+ const scope={name:'Diner',first:6,last:12,source:'bookmarks',resolved:'scene',resident:[{name:'Cast',first:1,last:2}]};
+ const pagesOf=row=>row.pages;
+ assert.deepEqual(api.rowsInScope([{pages:[2]},{pages:[4]},{pages:[]}],scope,pagesOf),[{pages:[2]},{pages:[]}],'a resident chapter\'s page is in scope');
+ const open=[{pages:[4]}];
+ assert.equal(api.rowsInScope(open,{...scope,resolved:'none'},pagesOf),open,'unscoped: unchanged');
+ assert.equal(api.rowsInScope(open,undefined,pagesOf),open,'no scope: unchanged');
+ reading.dispose();
+}));
