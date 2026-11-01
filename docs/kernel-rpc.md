@@ -54065,7 +54065,7 @@ printed on its first page; at 0.5 or more the chapter is resident. The answer is
 `<home>/.coc/chapter-scope/resident-<sha>.json`; an ask Jev could not answer keeps nothing resident and is asked again in the
 next session, not at the next read of this one (audit 1101: a `service_error` re-asked the whole book at every book read, each
 read waiting on the ask). Each question is retried within the book's 30 s deadline (`RESIDENT_RETRY`): two more attempts,
-250 ms then 500 ms apart; a network error or an attempt with no response in 8 s is retried, and a 429, 503 or 529 waits its
+250 ms then 500 ms apart; a network error or an attempt with no response in 4 s is retried, and a 429, 503 or 529 waits its
 `Retry-After`; a wait past the deadline is not taken, and a question still unanswered at the deadline counts as unanswered
 (no resident chapter). Audit 1101: every unanswered question was a connection failure (undici `UND_ERR_CONNECT_TIMEOUT` after
 10 s on one of the first parallel connections; Jev never answered; no 429/529 seen), which the adapter's default (no retry)

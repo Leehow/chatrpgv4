@@ -439,7 +439,7 @@ test('§276.5: retries are bounded; a question still refused is unanswered, with
 test('§276.5: the whole book\'s deadline holds: an attempt with no response ends at it, and the question is unanswered',async()=>{
  const fetches={},began=Date.now();
  const asked=await residentAsk(flakyJev(key=>key==='resident_c1'?'hang':'ok',fetches),300);
- assert.ok(Date.now()-began<2000,'ended by the deadline, not the 8 s attempt timeout');
+ assert.ok(Date.now()-began<2000,'ended by the deadline, not the 4 s attempt timeout');
  assert.equal(asked.failed,'timeout');assert.deepEqual(asked.resident,[false,false]);
 });
 

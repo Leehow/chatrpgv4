@@ -26,10 +26,10 @@ export const RESIDENT_WHOLE_UP_TO = 6;
  * §276.5: each question's transport retry, inside the whole book's deadline (`timeoutMs`). Audit 1101: the unanswered
  * questions were connection failures (undici UND_ERR_CONNECT_TIMEOUT after 10 s on one of the first parallel connections,
  * Jev never answered), which the adapter's default (no retry) turned into `service_error` and the whole verdict into none.
- * Two more attempts, 250 ms then 500 ms apart; a network error or an attempt with no response in 8 s is retried, a 429,
+ * Two more attempts, 250 ms then 500 ms apart; a network error or an attempt with no response in 4 s is retried (answers take 0.3-0.6 s; audit 1101 live: the stalled first connection otherwise held the first read 9 s), a 429,
  * 503 or 529 waits its Retry-After; a wait past the deadline is not taken, and the question stays unanswered.
  */
-export const RESIDENT_RETRY: RetryPolicy = {maxRetries: 2, backoffInitialMs: 250, backoffMaxMs: 2000, attemptTimeoutMs: 8000, retryNetwork: true, retryTimeout: true};
+export const RESIDENT_RETRY: RetryPolicy = {maxRetries: 2, backoffInitialMs: 250, backoffMaxMs: 2000, attemptTimeoutMs: 4000, retryNetwork: true, retryTimeout: true};
 
 export interface AskedPage {page: number; text: string}
 export interface AskedChapter {name: string; first: number; last: number; pages: AskedPage[]}
