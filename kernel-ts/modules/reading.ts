@@ -1,6 +1,7 @@
 import {attachesReadingFocus, sameReadingFocusDomain, compareReadingPriority, leanReading} from './reading-policy.js';
 /** One persisted source queue; native descriptor leases own publication attempts. */
 import { createHash, randomUUID } from 'node:crypto';
+import { ownOpeningChoice } from './opening-choice.js';
 import { copyFile, mkdir, readFile, rename, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative } from 'node:path';
 import { internalError, RpcError } from '../errors.js';
@@ -1605,8 +1606,8 @@ export class Reading {
             }
             let focus = truth(params.focus) ? params.focus : '';
             let question = truth(params.question) ? params.question : '';
-            if (purpose === 'opening' && !truth(focus) && truth(meta.opening_choice))
-                focus = meta.opening_choice.start_scene;
+            if (purpose === 'opening' && !truth(focus) && ownOpeningChoice(meta))
+                focus = ownOpeningChoice(meta);
             const material = params.material;
             if (material !== undefined && material !== 'map' && material !== PREGENS_MATERIAL && material !== EXHIBITS_MATERIAL)
                 throw new RpcError('invalid_params', 'material must be map, pregens or exhibits when supplied');

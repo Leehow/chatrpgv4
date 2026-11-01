@@ -17,7 +17,8 @@ import {ReadingService} from '../../extensions/module/reading-service.ts';
 import {DecisionContent,openingPassages} from '../../runtime/decision-content.ts';
 
 const ROOT=resolve(import.meta.dirname,'../..'),evidence=playtestScratch('page-open','direct-');
-await build({stdin:{contents:[['modules/index',['createModuleRuntime']],['context',['createKernelContext']],['locks',['createAdvisoryLocks']]]
+await build({stdin:{contents:[['modules/index',['createModuleRuntime']],['context',['createKernelContext']],['locks',['createAdvisoryLocks']],
+  ['modules/campaign-scope',['ensureCampaignModule','moduleContext']],['modules/store',['ModuleStore']],['modules/source-state',['sourceState']],['modules/visual',['assembleVisual']]]
   .map(([path,names])=>`export {${names.join(',')}} from ${JSON.stringify(join(ROOT,'kernel-ts',path+'.ts'))};`).join('\n'),resolveDir:ROOT,sourcefile:'page-open-api.ts',loader:'ts'},
   outfile:join(evidence,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',target:'node22',logLevel:'silent'});
 const api=await import(pathToFileURL(join(evidence,'api.mjs')).href);
@@ -55,7 +56,7 @@ async function bound(t){
   const context=await api.createKernelContext({workspace,content:join(ROOT,'content'),locks:api.createAdvisoryLocks(flock)}),modules=api.createModuleRuntime(context);
   t.after(async()=>{await modules.close();await context.git.close();});
   const mid=(await modules.handlers['module.source.bind']({source:{path:pdf,page_count:PAGES,file_sha256:sha(bytes)}})).module_id;
-  return {modules,mid,sha:sha(bytes),pdf:join(modules.source.store.moduleDir(mid),'source.pdf')};
+  return {modules,context,mid,sha:sha(bytes),pdf:join(modules.source.store.moduleDir(mid),'source.pdf')};
 }
 
 test('the opening and the setup pages are found from the text layer, and the guide is written from those pages alone',async t=>{
@@ -214,6 +215,58 @@ test('live7 cs-1101b: a setup\'s chosen opening is not written into the shared l
   assert.equal(status.reading.idle,true,'nothing will move it: detectable');
 });
 
+test('live7 du-1101b: a stale library opening_choice is not replayed and not cloned: a fork records its campaign\'s own opening',async t=>{
+  // Older code wrote one setup's opening into the shared library (entry-2 at 03:30:01); a later table's fork cloned it
+  // against its campaign's opening_scene (entry-1).
+  const two={...ANSWERS,locate:{openings:[{name:'Prologue',pages:[16,17]},{name:'Ras the owner',pages:[20]}],setup_pages:[6]}};
+  const f=await bound(t),host=runtime(two);runtime.sha=f.sha;
+  const asked=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});
+  const question=await f.modules.handlers['module.reference.publish']({module_id:f.mid,work_dir:asked.workDir,guidance_key:'d'.repeat(64),play_language:'en'});
+  assert.equal(question.setup_ready,false);
+  const store=f.modules.source.store,[first,second]=(await store.readGraph(f.mid)).entry_scene_ids,stale=await store.module(f.mid);
+  stale.opening_choice={start_scene:second,at:'2026-11-01T03:30:01Z'};
+  await api.sourceState(f.context.stateRoot).update(store.moduleDir(f.mid),{metadata:stale},f.context.locks);
+  const graph=await store.readGraph(f.mid),contract=await store.contract(),empty={nodes:[],claims:[],node_refs:[],ready_nodes:[],critical:[],required_review:[],coverage:{},dependencies:[]};
+  assert.notDeepEqual(api.assembleVisual(graph,empty,stale,contract).entry_scene_ids,[second],'the library does not replay a stored choice');
+  assert.deepEqual(api.assembleVisual(graph,empty,{...stale,campaign_scope:'c-x'},contract).entry_scene_ids,[second],'a fork replays its own');
+  // A campaign that recorded the first opening, by the handle its name-free surfaces show.
+  const campaign='c-own',dir=join(f.context.campaignsRoot,campaign);await mkdir(dir,{recursive:true});
+  await writeFile(join(dir,'campaign.json'),JSON.stringify({id:campaign,module_id:f.mid,opening_scene:'own-opening',setup:{node_handles:{[first]:'own-opening',[second]:'other-opening'}}}));
+  await api.ensureCampaignModule(f.context,campaign,f.mid);
+  const fork=await new api.ModuleStore(api.moduleContext(f.context,campaign)).module(f.mid);
+  assert.equal(fork.campaign_scope,campaign);
+  assert.equal(fork.opening_choice?.start_scene,first,'the campaign\'s opening, not the library\'s');
+  // A fork made before its campaign exists records no opening at all.
+  await api.ensureCampaignModule(f.context,'c-setup',f.mid);
+  assert.equal((await new api.ModuleStore(api.moduleContext(f.context,'c-setup')).module(f.mid)).opening_choice,undefined);
+  // The library's next write drops the stored choice.
+  await store.writeModule(await store.module(f.mid));
+  assert.equal((await store.module(f.mid)).opening_choice,undefined);
+  assert.equal(JSON.parse(await readFile(join(store.moduleDir(f.mid),'module.json'),'utf8')).opening_choice,undefined);
+});
+
+test('§14.19.10: a single-entry book published without start_scene keeps its sole entry in the library; a stale table choice beside it is ignored',async t=>{
+  const f=await bound(t),host=runtime(ANSWERS);runtime.sha=f.sha;
+  const result=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});
+  await f.modules.handlers['module.reference.publish']({module_id:f.mid,work_dir:result.workDir,guidance_key:'8'.repeat(64),play_language:'en'});
+  const store=f.modules.source.store,book=await store.module(f.mid),sole=book.opening_choice?.start_scene;
+  assert.equal(book.opening_choice?.of,'book','the sole entry is recorded as the book\'s, not a table\'s');
+  const graph=await store.readGraph(f.mid),contract=await store.contract(),empty={nodes:[],claims:[],node_refs:[],ready_nodes:[],critical:[],required_review:[],coverage:{},dependencies:[]};
+  assert.deepEqual(api.assembleVisual(graph,empty,book,contract).entry_scene_ids,[sole],'the library replays the book\'s own opening');
+  // A fork whose campaign names no opening keeps the book's; the library's next write keeps it too.
+  await api.ensureCampaignModule(f.context,'c-book',f.mid);
+  assert.equal((await new api.ModuleStore(api.moduleContext(f.context,'c-book')).module(f.mid)).opening_choice?.start_scene,sole);
+  await store.writeModule(await store.module(f.mid));
+  assert.equal((await store.module(f.mid)).opening_choice?.of,'book');
+  // The same scene stored by an older setup's write (unmarked) is a table's choice: not cloned, dropped on the next write.
+  const stale={...await store.module(f.mid),opening_choice:{start_scene:sole,at:'2026-11-01T03:30:01Z'}};
+  await api.sourceState(f.context.stateRoot).update(store.moduleDir(f.mid),{metadata:stale},f.context.locks);
+  await api.ensureCampaignModule(f.context,'c-stale',f.mid);
+  assert.equal((await new api.ModuleStore(api.moduleContext(f.context,'c-stale')).module(f.mid)).opening_choice,undefined);
+  await store.writeModule(await store.module(f.mid));
+  assert.equal((await store.module(f.mid)).opening_choice,undefined);
+});
+
 test('§14.19.9: a publication for an opening the reference does not cover names that reason, so the host reads it instead',async t=>{
   const f=await bound(t),host=runtime(ANSWERS);runtime.sha=f.sha;
   const result=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});
@@ -221,4 +274,16 @@ test('§14.19.9: a publication for an opening the reference does not cover names
     error=>error.details?.reason==='opening_not_in_reference'&&error.details.start_scene==='tongshen');
   const meta=JSON.parse(await readFile(join(f.modules.source.store.moduleDir(f.mid),'module.json'),'utf8'));
   assert.equal(meta.source_reference,undefined,'nothing was written before the refusal');
+});
+
+test('§14.19.8: a reference whose only entry is the book\'s is the book\'s opening, applied in the library as before',async t=>{
+  // Full suite 190a8913f: the roster fixtures publish a one-entry reference to the library with no start_scene and create
+  // the campaign without one; holding back that book-level entry left three start scenes and refused every campaign.
+  const f=await bound(t),host=runtime(ANSWERS);runtime.sha=f.sha;
+  const result=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});
+  const published=await f.modules.handlers['module.reference.publish']({module_id:f.mid,work_dir:result.workDir,guidance_key:'9'.repeat(64),play_language:'en'});
+  assert.equal(published.setup_ready,true);
+  const meta=JSON.parse(await readFile(join(f.modules.source.store.moduleDir(f.mid),'module.json'),'utf8'));
+  assert.ok(meta.opening_choice?.start_scene,'the book\'s sole entry is recorded');
+  assert.deepEqual((await f.modules.source.store.readGraph(f.mid)).entry_scene_ids,[meta.opening_choice.start_scene]);
 });

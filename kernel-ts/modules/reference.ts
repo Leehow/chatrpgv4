@@ -1,4 +1,5 @@
 /** Installs exact-source context through the existing module generation owner. */
+import {BOOK_OPENING,ownOpeningChoice} from './opening-choice.js';
 import{join,relative,dirname}from'node:path';
 import{readFile}from'node:fs/promises';
 import{sha256File,writeJsonAtomic}from'../fileio.js';
@@ -61,7 +62,7 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  const graph=assembleVisual(previous,{nodes,claims:[],node_refs:[],ready_nodes:[],critical:[],required_review:[],coverage:{},dependencies:[],review_policy:'module-logic-v1'},meta,contract);
  // §22.6/§14.19: the shared library's recorded choice is another table's when no campaign asked (live7 du-1101a: one setup's
  // guidance was bound to the opening a concurrent setup chose); only a campaign's own workspace carries its choice over.
- const requested=string(params.start_scene??''),priorChoice=params._shared_library===true?'':string(row(meta.opening_choice).start_scene??'');
+ const requested=string(params.start_scene??''),priorChoice=params._shared_library===true?'':ownOpeningChoice(meta);
  const chosen=requested?resolveStartScene(graph,requested,contract):entryIds.includes(priorChoice)?priorChoice:entries.length===1?entryIds[0]:null;
  // §14.19.9: an opening the reference does not cover is not a failure of the opening; the host prepares it by reading.
  const uncovered=(message:string):never=>{throw new RpcError('invalid_params',message,{fix:'prepare this opening by the page or ordinary reading path',
@@ -71,7 +72,9 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  // §14.19.1: the shared library's graph and module.json are never written with a setup's opening -- every table on the
  // book reads them (live7 cs-1101b: a 1101a setup's choice at 03:00:11 pinned the library's entry and opening for the
  // tables that came after). The choice binds this publication's guidance; the campaign pins its own opening at create.
- const shared=params._shared_library===true;
+ // A reference whose only entry is the book's (no start_scene asked) is the book's own opening, not a table's: it is
+ // applied as before, so a campaign created without start_scene opens on it.
+ const shared=params._shared_library===true&&!!requested;
  if(chosen&&!shared)applyOpeningChoice(graph,chosen,contract);
  const packetFile=join('source-references',String(receipt.packet_sha256),'packet.json');await writeJsonAtomic(join(root,packetFile),packet);
  // The stored representation is canonical JSON, so its persisted digest is measured after writing.
@@ -80,7 +83,9 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  meta.reading??={};meta.reading.materials=array(meta.reading.materials).filter(item=>item.key!=='source-reference:'+meta.file_sha256);
  meta.reading.materials.push({key:'source-reference:'+meta.file_sha256,purpose:'reference-context',reference_only:true,node_ids:entryIds,generation:number(meta.generation)+1});
  if(!previous){meta.reading.state='preparing';meta.status='assembled';meta.opening_ready=false;meta.opening=await store.opening(graph);meta.opening.opening_ready=false;}
- if(chosen&&!shared)meta.opening_choice={start_scene:chosen,at:nowIso()};
+ // §14.19.10: that book opening is marked, so the library keeps it while any unmarked (a table's) choice is void.
+ const bookOpening=!requested&&!!chosen&&entries.length===1;
+ if(chosen&&!shared)meta.opening_choice={start_scene:chosen,at:nowIso(),...(bookOpening?{of:BOOK_OPENING}:{})};
  await store.writeGraph(meta,graph);
  let guidance:Row|undefined;
  if(chosen){const entry=entries.find(entry=>bindings[entry.id].node_id===chosen)??fail('Selected opening has no original reference');
@@ -105,7 +110,7 @@ export async function referenceReady(store:ModuleStore,mid:string,focus=''):Prom
  if(ref.protocol!==SOURCE_REFERENCE_PROTOCOL||ref.source_sha256!==meta.file_sha256||typeof ref.packet_file!=='string')return false;
  try{const file=await resolvedPath(join(store.moduleDir(mid),ref.packet_file));if(!inside(await resolvedPath(store.moduleDir(mid)),file)||await sha256File(file)!==ref.packet_sha256)return false;
   const packet=validateReferencePacket(JSON.parse(await readFile(file,'utf8')),number(meta.page_count),string(meta.file_sha256));
-  const wanted=focus||string(row(meta.opening_choice).start_scene??'')||(packet.entries.length===1?packet.entries[0].id:'');
+  const wanted=focus||ownOpeningChoice(meta)||(packet.entries.length===1?packet.entries[0].id:'');
   return packet.entries.some(entry=>{const bound=row(row(ref.entry_bindings)[entry.id]);return [entry.id,entry.id.replace(/^scene-/,''),entry.name,bound.node_id,string(bound.node_id??'').replace(/^scene-/,''),bound.name].some(value=>typeof value==='string'&&value.trim()&&normalize(value)===normalize(wanted));});
  }catch{return false;}
 }

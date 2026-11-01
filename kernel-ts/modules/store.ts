@@ -1,6 +1,7 @@
 import {sourceState} from './source-state.js';
 /** Module metadata pointers publish complete, append-only generation directories. */
 import { randomUUID } from 'node:crypto';
+import { dropForeignOpening } from './opening-choice.js';
 import { mkdir } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
 import type { KernelContext } from '../context.js';
@@ -54,7 +55,10 @@ export class ModuleStore {
         }
         return clone((await sourceState(this.context.stateRoot).snapshot(this.moduleDir(id), this.context.locks)).metadata!);
     }
-    async writeModule(meta: Row): Promise<void> {meta.updated_at = nowIso(); await sourceState(this.context.stateRoot).update(this.moduleDir(string(meta.id)), {metadata:meta}, this.context.locks);}
+    async writeModule(meta: Row): Promise<void> {
+        // §14.19.1: the shared library keeps no table's opening; one stored by older code is dropped on its next write.
+        dropForeignOpening(meta);
+        meta.updated_at = nowIso(); await sourceState(this.context.stateRoot).update(this.moduleDir(string(meta.id)), {metadata:meta}, this.context.locks);}
     async generation(id: string): Promise<number> { return number((await this.module(id)).generation || 0); }
     async graphPath(id: string, binding?: Row): Promise<string> {
         if (binding || await this.exists(id)) {

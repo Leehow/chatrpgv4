@@ -15,6 +15,9 @@ import { nowIso } from '../write/store.js';
 import { playsFromReading } from './bound-source.js';
 import { SOURCE_ANSWER_PROTOCOL, checkSourceAnswer, sourceAnswerResult } from './source-answer.js';
 import { ModuleStore, validateModuleId } from './store.js';
+import { type ModuleContract } from './contract.js';
+import { resolveStartScene } from './visual.js';
+import { isBookOpening } from './opening-choice.js';
 import { childPath, inside, resolvedPath } from './paths.js';
 
 export function moduleContext(context: KernelContext, campaign: string): KernelContext {
@@ -104,6 +107,25 @@ export async function retireResidualFork(context: KernelContext, campaign: strin
         await sourceState(context.stateRoot).update(store.moduleDir(id), { metadata: meta }, context.locks);
         return true;
     });
+}
+
+/**
+ * §14.19.1: the book scene a campaign recorded as its opening (`campaign.json` `opening_scene`), as a node id of `graph`:
+ * the handle a name-free campaign shows maps back through its `node_handles` (the world's, else the setup's); a node id or
+ * an authored opening's name resolves as itself. None before the campaign exists or when it names no scene.
+ */
+async function campaignOpeningNode(context: KernelContext, campaign: string, graph: Row, contract: ModuleContract): Promise<string> {
+    const directory = join(context.campaignsRoot, campaign), read = async (name: string): Promise<Row> =>
+        await context.snapshots.pathExists(join(directory, name)) ? row(await context.snapshots.readJson(join(directory, name))) : {};
+    const meta = await read('campaign.json'), opening = meta.opening_scene;
+    if (typeof opening !== 'string' || !opening) return '';
+    const scenes = new Set(array(graph.nodes).filter(node => node.node_kind === 'scene').map(node => String(node.node_id)));
+    if (scenes.has(opening)) return opening;
+    const handles = { ...row(row(meta.setup).node_handles), ...row((await read('world.json')).node_handles) };
+    const mapped = Object.entries(handles).find(([id, handle]) => handle === opening && scenes.has(id));
+    if (mapped) return mapped[0];
+    const resolved = resolveStartScene(graph, opening, contract);
+    return resolved && scenes.has(resolved) ? resolved : '';
 }
 
 export async function ensureCampaignModule(context: KernelContext, campaign: string, moduleId: string): Promise<KernelContext> {
@@ -224,6 +246,12 @@ export async function ensureCampaignModule(context: KernelContext, campaign: str
                 }
                 privateMeta.campaign_scope = campaign;
                 privateMeta.source_generation = meta.generation ?? 0;
+                // §14.19.1: the fork's recorded opening is its campaign's own, never the library's (live7 du-1101b: a library
+                // opening_choice an earlier setup wrote was cloned into this table's fork against its campaign's opening).
+                // A campaign that names no opening keeps only the book's own (its sole reference entry, §14.19.8), never a table's.
+                const opening = await campaignOpeningNode(context, campaign, graph, await library.contract());
+                if (opening) privateMeta.opening_choice = { start_scene: opening, at: nowIso() };
+                else if (!isBookOpening(meta.opening_choice)) delete privateMeta.opening_choice;
                 await writeJsonAtomic(join(temporary, 'deepen-queue.json'), []);
                 await writeJsonAtomic(join(temporary, 'module.json'), privateMeta);
                 // Publication is one atomic rename; a failed or interrupted fork leaves no

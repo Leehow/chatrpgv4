@@ -2319,7 +2319,10 @@ Rules:
 1. **A shared-library publication keeps no table's opening.** A `module.reference.publish` that no campaign asked for
    still binds its guidance to the requested opening. It no longer applies the choice to the shared graph's entry, and no
    longer writes the library's `opening_choice`. A campaign pins its own opening at `campaign.create`, in its own
-   workspace.
+   workspace. The rule covers a `start_scene` a setup asked for, and nothing else. A reference whose only entry is the
+   book's own, published with no `start_scene` asked, is the book's opening, and the library applies it as before. A
+   campaign created without `start_scene` opens on it. Full suite 190a8913f: holding that entry back left the roster
+   fixtures' book with three start scenes, so every campaign it created was refused.
 2. **`complete` waits a bounded allowance.** It waits on the opening's reading for `PI_COC_COMPLETE_WAIT_MS` (default
    20,000 ms), and the reading goes on behind it. Then the kernel is asked, and it answers `campaign_not_ready /
    opening_preparing`: the card is kept, and the host completes when the opening is ready.
@@ -2355,6 +2358,39 @@ The candidate list is unchanged: option B would have hidden openings the book ha
 - `tests/extension/source-guidance-recovery.test.mjs` (the live7 case): an uncovered `tongshen` goes to the ordinary
   reader, and there is no `guidance_failed`.
 - `tests/extension/page-open.test.mjs` ("14.19.9", on the real kernel): the refusal's reason, with nothing written.
+
+**14.19.10 A fork's opening is its campaign's; a library's stored opening is void (2026-11-01, live7 du-1101b, cs-1101b).**
+14.19.8 stopped new writes of a table's opening into the shared library, but two older paths still carried one: an
+`opening_choice` already stored on the library was never removed, `ensureCampaignModule` cloned the library's metadata,
+`opening_choice` included, into each new campaign fork, and `assembleVisual` replayed it onto the graph's entry. Live7:
+du-1101b-gksev's fork recorded `scene-source-entry-2` (written to book-1 at 03:30:01Z by du-1101a-gksevr's preparation)
+while its campaign's `opening_scene` was entry 1; two cs-1101b forks recorded entry 1 against a campaign on `tongshen`.
+
+- **Only a fork records a table's opening** (`kernel-ts/modules/opening-choice.ts`): `opening_choice` counts on metadata
+  with a `campaign_scope`, and on the library only when it is the book's own (`of: "book"`, below). Any other library
+  `opening_choice` is a table's, and every reader ignores it -- the graph's replay (`assembleVisual`), the reference
+  publication's prior choice and readiness focus, the opening read's default focus, the handle job's seeds -- and the
+  library's next `writeModule` drops it, as it drops one an unscoped `module.opening.choose` sets (§14.19.1: never
+  unscoped). The library's task source revision leaves it out, so a fork seeded with its own opening still measures the
+  library's origin (§184).
+- **The book's sole entry is not a table's choice** (§14.19.8 rule 1). A reference with one entry, published with no
+  `start_scene` asked, records that entry on the library as `opening_choice {start_scene, at, of: "book"}`; the library
+  keeps, replays and seeds it like any book fact. Only the marker distinguishes it: an unmarked library choice, even of the
+  same scene, is a setup's from older code and is void.
+- **A fork is seeded with its campaign's opening.** `ensureCampaignModule` sets the fork's `opening_choice` from the
+  campaign's `campaign.json` `opening_scene`, mapped to the book's node id (the scene id itself, else back through the
+  campaign's `node_handles` -- the world's, else the setup's -- else as an authored opening's name). A fork made before its
+  campaign exists, or whose campaign names no scene, records only the library's book opening if it has one, else none; the campaign's `opening_scene` stays the opening play
+  starts from (`campaign.create`), and a later `module.opening.choose {campaign}` records it on the fork.
+- Not repaired: a library graph whose entry an older write already narrowed to one opening keeps that entry, and a fork made
+  before this change keeps the opening it cloned until its next `module.opening.choose {campaign}`. No data is migrated.
+
+Test: `tests/extension/page-open.test.mjs` ("live7 du-1101b", on the real kernel): a stale library `opening_choice` is not
+replayed by `assembleVisual` on the library (a fork's is), a new fork records its campaign's opening (by handle), a fork
+before its campaign records none, and the library's next write drops the stored one. ("§14.19.10: a single-entry book"):
+a one-entry reference published without `start_scene` keeps its entry on the library (marked `of: "book"`, replayed,
+seeded into a fork with no campaign opening, kept across writes), while an unmarked choice of the same scene is not cloned
+and is dropped on the next write.
 
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 

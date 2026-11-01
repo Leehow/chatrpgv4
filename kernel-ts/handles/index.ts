@@ -10,6 +10,7 @@ import {readSourceMetadata} from '../modules/source-state.js';
  * can also be named in the library alone (`{module}`), before any campaign on it folds.
  */
 import { join } from 'node:path';
+import { ownOpeningChoice } from '../modules/opening-choice.js';
 import type { KernelContext } from '../context.js';
 import { RpcError } from '../errors.js';
 import type { HandlerGroup } from '../handlers.js';
@@ -29,7 +30,7 @@ const STATUSES: readonly string[] = ['setting_up', 'ready_for_table', 'active'];
  * its one start scene (what `campaign.create` opens without a choice), else every scene the book marks as a way in.
  */
 function openingSeeds(graph: ModuleGraph, meta: Row): Row[] {
-    const recorded = row(meta.opening_choice).start_scene, chosen = typeof recorded === 'string' ? graph.nodes.get(recorded) : undefined;
+    const recorded = ownOpeningChoice(meta), chosen = recorded ? graph.nodes.get(recorded) : undefined;
     if (chosen?.node_kind === 'scene') return [chosen];
     const scenes = graph.kind('scene'), starts = scenes.filter(scene => recordOf(scene).is_start === true);
     if (starts.length === 1) return starts;
