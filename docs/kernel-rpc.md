@@ -2384,6 +2384,7 @@ while its campaign's `opening_scene` was entry 1; two cs-1101b forks recorded en
   starts from (`campaign.create`), and a later `module.opening.choose {campaign}` records it on the fork.
 - Not repaired: a library graph whose entry an older write already narrowed to one opening keeps that entry, and a fork made
   before this change keeps the opening it cloned until its next `module.opening.choose {campaign}`. No data is migrated.
+  A cheap read guard covers such forks: `ModuleStore.module` (`anchorForkOpening`) replaces a fork's differing `opening_choice` with its campaign's `opening_scene` (mapped to the node id), and appends one `fork_opening_mismatch` telemetry row per campaign and module per process; a campaign naming no opening keeps the fork's value.
 
 Test: `tests/extension/page-open.test.mjs` ("live7 du-1101b", on the real kernel): a stale library `opening_choice` is not
 replayed by `assembleVisual` on the library (a fork's is), a new fork records its campaign's opening (by handle), a fork
