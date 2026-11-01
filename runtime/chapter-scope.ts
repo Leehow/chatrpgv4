@@ -79,6 +79,21 @@ export function placeChapter(chapters: Chapter[], pages: number[]): Chapter | un
 	return undefined;
 }
 
+/**
+ * §276.2: whether a graph entity's book pages may place the party, read from structure only (a `table.lookup kind=module`
+ * row's `kind` and `properties`): a place, `scene` or `location`; never the module's root (`module`) or any other kind. An
+ * opening's reading anchor -- a scene the source reference minted for an entry, marked `is_entrance` and
+ * `source_reference_anchor` (`publishReferenceContext`) -- is a span of book pages where an opening's reading starts, not a
+ * place: its pages decide only as the campaign's opening, never as the scene the party is in (live7 du-1101a/b: the anchor on
+ * the title page and the keeper's background stood as the party's scene and held the party in that background). A place
+ * minted from the source reference (`source_reference_anchor` alone, `publishReferencePlace`) is a place.
+ */
+export function placesParty(entity: Row | undefined, as: 'scene' | 'opening' = 'scene'): boolean {
+	if (!entity || (entity.kind !== 'scene' && entity.kind !== 'location')) return false;
+	const marks = entity.properties && typeof entity.properties === 'object' ? entity.properties : {};
+	return as === 'opening' || !(marks.is_entrance === true && marks.source_reference_anchor === true);
+}
+
 export const chapterView = (scope: ChapterScope): Row => ({ name: scope.name, first: scope.first, last: scope.last, source: scope.source,
 	...(scope.resident?.length ? { resident: scope.resident.map(own => ({ name: own.name, first: own.first, last: own.last })) } : {}) });
 export const CHAPTER_NOTE = "These pages are the current chapter's; the Keeper's book is this chapter. " + BOOK_ABSENCE_RULE;

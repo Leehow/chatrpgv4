@@ -35,7 +35,7 @@ import {SKELETON_VERSION} from './lean-skeleton.ts';
 import {cardBlocks, checkedCard} from './mechanics-card.ts';
 import {BOOK_PAGES_NOTE, PAGE_BOUNDS, bookContents, contentsLines, firstLines, focusInPageMode, inPageMode, requestedPages, type ContentsRow} from './page-mode.ts';
 import {singleCall, normalName, titleOnlyFocus} from './lean-skeleton.ts';
-import {bookChapters, CHAPTER_NOTE, chapterAbsent, chapterHolding, chapterView, inChapter, noteChapterModule, placeChapter, scopeSpans, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
+import {bookChapters, CHAPTER_NOTE, chapterAbsent, chapterHolding, chapterView, inChapter, noteChapterModule, placeChapter, placesParty, scopeSpans, setChapterResolver, type Chapter, type ChapterScope, type ChapterSource} from '../../runtime/chapter-scope.ts';
 import {LEAN_MAP_REQUESTS, partialSkeletonPath, answerPages, placePages, buildSkeleton, castPlayNames, castDraftFromSkeleton, leanCrossReferences, samePrimaryLanguage, skeletonDigest, skeletonIndexRows, skeletonPath, LEAN_ANSWER_ASK, LEAN_ANSWER_REQUESTS} from './lean-skeleton.ts';
 import {acceptedGuidance,acceptedPublicGuidance} from './character-guidance.ts';
 import {validateReferencePacket} from '../../kernel-ts/modules/reference-contract.ts';
@@ -600,11 +600,16 @@ export class ReadingService implements ReadingBridge {
 		await writeFile(file, JSON.stringify({ version: KEPT_VERSION, modules }) + "\n");
 	}
 	/** The book pages the graph holds for a name (the scene the party is at, the opening scene); spelling and identity only. */
-	private async graphPages(campaign: string, query: string): Promise<number[]> {
+	/**
+	 * §276.2: the book pages of the graph entity a scene or opening names, when its structural kind lets them place the party
+	 * (`placesParty`): a module root never does, and an opening's reading anchor does only as the opening (`as: "opening"`).
+	 */
+	private async graphPages(campaign: string, query: string, as: "scene" | "opening" = "scene"): Promise<number[]> {
 		if (!query.trim()) return [];
 		const found = await this.call("table.lookup", { kind: "module", query, _context_read: true }, campaign);
 		const entity = (found?.entities ?? []).find((row: Row) => [row.name, row.display_name, row.id, row.handle].some(name => typeof name === "string" && normalName(name) === normalName(query)));
-		return (entity?.original_pages ?? []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1).map(Number);
+		if (!entity || !placesParty(entity, as)) return [];
+		return (entity.original_pages ?? []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1).map(Number);
 	}
 	/** §276.5: the book's resident chapters by file hash; an unanswered ask is not kept and is asked again next session. */
 	private residents = new Map<string, Promise<Chapter[]>>();
@@ -659,7 +664,9 @@ export class ReadingService implements ReadingBridge {
 		let chapter: Chapter | undefined, resolved: ChapterScope["resolved"] = "scene";
 		const where = (await this.call("table.capsule", { _context_read: true }, campaign).catch(() => undefined))?.where ?? {};
 		const scene = String(where.scene ?? ""), shown = String(where.display_name ?? "");
-		// The scene's graph pages and the pointer index's pages are read by the same rule: where most of them stand.
+		// The scene's graph pages and the pointer index's pages are read by the same rule: where most of them stand. Only a place's
+		// pages place the party (`placesParty`): live7 du-1101a/b sat in the opening's reading anchor, a book section on the title
+		// page and the keeper's background, and its pages held the party in that background while it played elsewhere.
 		chapter = located(await this.graphPages(campaign, scene).catch(() => []));
 		// Under lean reading the graph holds few places: the pointer index's pages for the place the scene is shown by.
 		if (!chapter) try { const skeleton = JSON.parse(await readFile(skeletonPath(this.deps.home, sha), "utf8"));
@@ -678,7 +685,7 @@ export class ReadingService implements ReadingBridge {
 			const start = String(status?.campaign_opening || status?.opening?.start_scene || "");
 			// The authored opening is where play starts: when its pages hold no majority, the chapter its first page stands in
 			// (audit 1031: openings on [4,5], [4,14,17], [14..18] fell through to the keeper's background as the first chapter).
-			const pages = await this.graphPages(campaign, start).catch(() => [] as number[]);
+			const pages = await this.graphPages(campaign, start, "opening").catch(() => [] as number[]);
 			chapter = located(pages) ?? (pages.length ? chapterHolding(book.chapters, Math.min(...pages)) : undefined);
 		}
 		if (!chapter) { resolved = "first"; chapter = book.chapters.find(row => row.first > 1 || book.chapters.length === 1) ?? book.chapters[0]; }

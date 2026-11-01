@@ -78,7 +78,10 @@ async function service(root,{scene,graph={},notes=[],searched=[],opening,campaig
    if(method==='module.source.snapshot')return {pdf,file_sha256:SHA,page_count:12,revision:'r1'};
    if(method==='module.status')return {title:'Blood Road',opening:opening?{start_scene:opening}:{},...(state.campaignOpening?{campaign_opening:state.campaignOpening}:{})};
    if(method==='table.capsule')return {where:{scene:state.scene,...(state.shown?{display_name:state.shown}:{})}};
-   if(method==='table.lookup')return {entities:graph[params.query]?[{name:params.query,kind:'scene',original_pages:graph[params.query]}]:[]};
+   // A graph entry is its pages (a scene), or {pages, kind, properties} for another structural kind.
+   if(method==='table.lookup'){const own=graph[params.query];if(!own)return {entities:[]};
+    const entity=Array.isArray(own)?{kind:'scene',original_pages:own}:{kind:own.kind??'scene',...(own.properties?{properties:own.properties}:{}),original_pages:own.pages};
+    return {entities:[{name:params.query,...entity}]};}
    return {};},
   campaign:()=>'c1',home:root,model:()=>({id:'m',vision:true}),progress:()=>{},record:row=>notes.push(row),...(env?{env}:{}),
   runtime:{sourceInfo:async()=>({bookmarks}),
@@ -327,6 +330,35 @@ test('§276.2: an opening with no majority of pages starts in the chapter of its
  const scope=await reading.chapterScope('blood-road','c1');
  assert.deepEqual([scope.name,scope.resolved],['Intro','opening']);
  reading.dispose();
+}));
+
+test('§276.2: only a place\'s pages place the party: an opening\'s reading anchor or the module root falls through',async()=>lean(async()=>{
+ // live7 du-1101a/b: where.scene was the opening's reading anchor (`is_entrance` + `source_reference_anchor`), on the title page
+ // and the keeper's background (pages 2-3), and its pages held the party in the background while it played elsewhere.
+ const anchor={pages:[2,3],properties:{is_entrance:true,source_reference_anchor:true,opening_pages_text:true}};
+ const bookmarks=[{name:'Background',page:2},{name:'Intro',page:4},{name:'Diner',page:6}];
+ const notes=[];
+ const {reading,state}=await service(playtestScratch('chapter-scope','anchor-scene-'),{scene:'book-title-entry',notes,bookmarks,campaignOpening:'investigator-hook',
+  graph:{'book-title-entry':anchor,'investigator-hook':{pages:[4],properties:{is_entrance:true,source_reference_anchor:true}},
+   'reference place':{pages:[7],properties:{source_reference_anchor:true}},'read entrance':{pages:[2],properties:{is_entrance:true}},
+   'book-module':{kind:'module',pages:[2]}}});
+ let scope=await reading.chapterScope('blood-road','c1');
+ assert.deepEqual([scope.name,scope.resolved],['Intro','opening'],'the anchor decides nothing as the scene; the opening anchor does as the opening');
+ state.scene='reference place';
+ assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Diner','scene'],'a place minted from the reference is a place');
+ state.scene='book-title-entry';
+ assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Diner','kept'],'back in the anchor, the party keeps its chapter');
+ state.scene='book-module';
+ assert.equal((await reading.chapterScope('blood-road','c1')).resolved,'kept','the module root is no place');
+ state.scene='read entrance';
+ assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Background','scene'],'a read entrance scene is a place');
+ reading.dispose();
+ // An opening that resolves to the module root has no pages: the first chapter stands in.
+ const root=await service(playtestScratch('chapter-scope','anchor-root-'),{scene:'book-title-entry',bookmarks,campaignOpening:'book-module',
+  graph:{'book-title-entry':anchor,'book-module':{kind:'module',pages:[6]}}});
+ assert.equal((await root.reading.chapterScope('blood-road','c1')).resolved,'first');
+ root.reading.dispose();
+ assert.deepEqual([api.placesParty({kind:'location'}),api.placesParty({kind:'npc'}),api.placesParty(undefined),api.placesParty({kind:'scene',properties:anchor.properties},'opening')],[true,false,false,true]);
 }));
 
 test('§276.2: a place locates the party only when more than half of its pages stand in one chapter',()=>{

@@ -54151,6 +54151,18 @@ ad's on [14..18] fell through to the first chapter, the keeper's background, and
 it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's pages decide; with no opening pages either,
 the first chapter. The chapter changes only when the party is in a book scene of another chapter.
 
+**Only a place's pages place the party (2026-11-01).** Which graph entities' pages count is read from structure only, the
+lookup row's `kind` and `properties` (`placesParty`, `runtime/chapter-scope.ts`): a `scene` or `location`; never the module's
+root (`kind: module`) or any other kind. An opening's reading anchor -- the scene the source reference mints for an entry,
+marked `is_entrance` and `source_reference_anchor` -- is the span of book pages where that opening is read, not a place: its
+pages decide as the campaign's opening, never as the scene the party is in, which falls through to the pointer index, the
+kept chapter, then the opening. A place minted from the source reference (`source_reference_anchor` alone) and a read
+entrance (`is_entrance` alone) are places. Live7 du-1101a/b: both tables opened on the first entry, the anchor on the title
+page and the keeper's background (pages 2-3); the Keeper played the Arkham cemetery inside that opening scene for eight turns
+without a move (the scene follows moves, §1.2.8: the opening locus was kept), the scene branch put the party in the background
+by its pages, and the places the table later made kept it there. Known issue: an opening anchor that itself stands in the
+keeper's background still starts the table there through the opening branch.
+
 The opening is the campaign's own: `module.status` called with a campaign carries `campaign_opening`, the campaign's
 recorded `opening_scene` as the table names it, and the host looks that up (`table.lookup kind=module`); the module's
 `opening.start_scene` is read only from a kernel that does not answer `campaign_opening`. The module's opening is the book's

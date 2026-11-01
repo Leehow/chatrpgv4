@@ -32,7 +32,7 @@ const ALL = PAGES.map((_, index) => index + 1);
 const BOOKMARKS = [{name: 'Background', page: 2}, {name: 'Prologue', page: 3}, {name: 'Harbor', page: 5}, {name: 'Tower', page: 7}];
 
 /** A book read through the kernel's reading lane as far as its opening, the Dock on `dockPages`, and a campaign created on it. */
-async function bookTable(t, seed, dockPages) {
+async function bookTable(t, seed, dockPages, {anchor = false} = {}) {
 	const home = await mkdtemp(join(temporary, 'home-'));
 	const context = await api.createKernelContext({workspace: home, content: join(root, 'content'), seed,
 		locks: api.nativeAdvisoryLocks(), env: {...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1'}});
@@ -55,11 +55,18 @@ async function bookTable(t, seed, dockPages) {
 	await read('index', {title: 'The Harbor', language: 'en', sections: [{name: 'Harbor and tower', pages: [[1, 8]], source_refs: refs, entities: ['Dock', 'Tower']}]}, []);
 	const nodes = [{node_id: 'scene-dock', node_kind: 'scene', name: 'Dock', source_refs: refs, properties: {is_entrance: true}},
 		{node_id: 'scene-tower', node_kind: 'scene', name: 'Tower', source_refs: [{page: 7}], summary: 'An old tower beyond the harbor.'}];
-	await read('opening', {nodes, claims: [{subject_id: 'scene-dock', predicate: 'route-to', object: {node_id: 'scene-tower'}, truth_status: 'authored-fact', source_refs: refs}],
-		node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['scene-dock']}, ['/nodes/0', '/claims/0', '/coverage']);
+	// live7 du: an opening's reading anchor on the title page and the keeper's background (`is_entrance` + `source_reference_anchor`).
+	const claims = [{subject_id: 'scene-dock', predicate: 'route-to', object: {node_id: 'scene-tower'}, truth_status: 'authored-fact', source_refs: refs}];
+	if (anchor) {
+		nodes.push({node_id: 'scene-title-entry', node_kind: 'scene', name: 'Title entry', source_refs: [{page: 2}], summary: 'The book opens.',
+			properties: {is_entrance: true, source_reference_anchor: true}});
+		claims.push({subject_id: 'scene-dock', predicate: 'route-to', object: {node_id: 'scene-title-entry'}, truth_status: 'authored-fact', source_refs: refs});
+	}
+	await read('opening', {nodes, claims,
+		node_refs: [], coverage: {}, dependencies: [], critical: [], ready_nodes: ['scene-dock']}, ['/nodes/0', '/claims/0', ...(anchor ? ['/nodes/2', '/claims/1'] : []), '/coverage']);
 	const campaign = `${seed}-table`;
 	// Seated and opened as a live table is: an investigator from a starter pregen (§21.5), setup completed, the table opened.
-	await raw('campaign.create', {id: campaign, module: mid, play_language: 'en'});
+	await raw('campaign.create', {id: campaign, module: mid, play_language: 'en', ...(anchor ? {start_scene: 'scene-dock'} : {})});
 	await raw('campaign.create', {id: 'card-source', module: 'the-haunting', pregen: 'thomas-hayes', play_language: 'en'});
 	const {library_id} = await raw('investigator.save', {campaign: 'card-source'});
 	await raw('investigator.load', {campaign, library_id});
@@ -101,4 +108,18 @@ test('§276.2 (real kernel): an opening whose pages scatter starts the table in 
 	const scope = await table.reading.chapterScope(table.mid, table.campaign);
 	assert.deepEqual([scope.name, scope.first, scope.last, scope.resolved], ['Prologue', 3, 4, 'opening'],
 		'one page each in Prologue, Harbor and Tower: no majority, page 4 decides; not Background, the first chapter');
+});
+
+test('§276.2 (real kernel): an opening\'s reading anchor the party moves into does not move it to its pages', async t => {
+	const table = await bookTable(t, 'anchor', [5, 6, 7], {anchor: true});
+	assert.equal((await table.reading.chapterScope(table.mid, table.campaign)).name, 'Harbor');
+	const found = await table.raw('table.lookup', {campaign: table.campaign, kind: 'module', query: 'Title entry', _context_read: true});
+	const entry = found.entities.find(row => row.kind === 'scene' && row.properties?.source_reference_anchor === true);
+	assert.ok(entry, 'the anchor is a scene row carrying its structural marks');
+	await table.raw('table.narrate', {campaign: table.campaign, call_id: 't0-c1', text: 'The tar smell carries up from the dock.'});
+	await table.raw('table.player_input', {campaign: table.campaign, text: 'I go back to where it all began.'});
+	await table.raw('table.apply', {campaign: table.campaign, call_id: 't1-c1', effects: [{kind: 'move', to: entry.name, travel_minutes: 5}]});
+	assert.equal((await table.raw('table.capsule', {campaign: table.campaign, _context_read: true})).where.scene, entry.name);
+	const scope = await table.reading.chapterScope(table.mid, table.campaign);
+	assert.deepEqual([scope.name, scope.resolved], ['Harbor', 'kept'], 'not Background, the anchor\'s page');
 });
