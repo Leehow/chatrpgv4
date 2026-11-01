@@ -540,10 +540,14 @@ draft=({["nodes"]:[({["node_id"]:`module-${mid}`,["node_kind"]:"module",["name"]
 assert.ok(pyBool(!pyBool(pyAt((await pyInvoke(finish,[kernel,job],{})),"opening_ready"))),"tests/kernel/test_visual_reading.py:528 assert not finish(kernel, job)['opening_ready']");
 status=(await pyMethod(kernel,"ok",["module.status",({["module_id"]:mid})],{}));
 assert.ok(pyBool((await (async()=>{const __left=pyEqual((await pyInvoke(pyLen,[pyAt(status,"opening_candidates")],{})),2);return pyBool(__left)?!pyBool(pyAt(status,"opening_ready")):__left;})())),"tests/kernel/test_visual_reading.py:530 assert len(status['opening_candidates']) == 2 and not status['opening_ready']");
-chosen=(await pyMethod(kernel,"ok",["module.opening.choose",({["module_id"]:mid,["scene"]:"First"})],{}));
-assert.ok(pyBool(!pyBool(pyAt(chosen,"opening_ready"))),"tests/kernel/test_visual_reading.py:532 assert not chosen['opening_ready']");
+// §14.19.1/§14.19.10: choosing among a book's openings is a table's choice; the shared library refuses it without a campaign and records nothing.
+const refused=(await pyMethod(kernel,"err",["module.opening.choose",({["module_id"]:mid,["scene"]:"First"})],{}));
+assert.equal(refused.code,"invalid_params");assert.equal(refused.details.reason,"campaign_required");
+assert.deepEqual(refused.details.candidates.map((row:any)=>row.node_id).sort(),["scene-first","scene-second"]);
+assert.ok(!(await pyMethod(kernel,"ok",["module.status",({["module_id"]:mid})],{})).opening_ready,"the refusal authorizes no play");
 assert.ok(pyBool(pyEqual((await pyInvoke(pyLen,[pyAt((await pyMethod((await pyInvoke(ModuleStore,[kernel.workspace],{})),"read_graph",[mid],{})),"nodes")],{})),3)),"tests/kernel/test_visual_reading.py:533 assert len(ModuleStore(kernel.workspace).read_graph(mid)['nodes']) == 3");
-(await pyInvoke(request,[kernel,mid,"opening"],{"foreground":true}));
+// The library's opening read names the scene it is for; nothing stored on the library chooses it.
+(await pyInvoke(request,[kernel,mid,"opening"],{"foreground":true,"focus":"scene-first"}));
 opening_job=(await pyInvoke(claim,[kernel,mid],{}));
 assert.ok(pyBool((await (async()=>{const __left=pyEqual(pyAt(opening_job,"purpose"),"opening");return pyBool(__left)?pyEqual(pyAt(opening_job,"focus"),"scene-first"):__left;})())),"tests/kernel/test_visual_reading.py:536 assert opening_job['purpose'] == 'opening' and opening_job['focus'] == 'scene-first'");
 }

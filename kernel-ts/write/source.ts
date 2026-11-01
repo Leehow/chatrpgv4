@@ -232,7 +232,7 @@ export function openingReport(graph: Row, view: ModuleGraph, template: Row, doss
             report.choice = {
                 field: 'start_scene', reason: 'start_scene_ambiguous', candidates,
                 method: 'module.opening.choose',
-                ask: 'The book declares more than one opening scene. Ask which one this table starts on, then call module.opening.choose with that scene.'
+                ask: 'The book declares more than one opening scene. Ask which one this table starts on, then call module.opening.choose with that scene and the table\'s campaign.'
             };
         return report;
     }

@@ -1,7 +1,7 @@
 import {sourceState} from './source-state.js';
 /** Module metadata pointers publish complete, append-only generation directories. */
 import { randomUUID } from 'node:crypto';
-import { dropForeignOpening } from './opening-choice.js';
+import { anchorForkOpening, dropForeignOpening } from './opening-choice.js';
 import { mkdir } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
 import type { KernelContext } from '../context.js';
@@ -53,7 +53,13 @@ export class ModuleStore {
                 fix: 'bind an original PDF with module.source.bind or register a starter', details: { module_id: id, modules: await this.ids() },
             });
         }
-        return clone((await sourceState(this.context.stateRoot).snapshot(this.moduleDir(id), this.context.locks)).metadata!);
+        const meta = clone((await sourceState(this.context.stateRoot).snapshot(this.moduleDir(id), this.context.locks)).metadata!);
+        // §14.19.10: a fork made before its campaign's opening was seeded reads the campaign's opening, not the one it cloned.
+        await anchorForkOpening(this.context, meta, async () => {
+            const graph = row((await readPublishedGraph(this.context, await this.graphPath(id, meta), meta, id)).raw);
+            return new Set(array(graph.nodes).filter(node => node.node_kind === 'scene').map(node => String(node.node_id)));
+        });
+        return meta;
     }
     async writeModule(meta: Row): Promise<void> {
         // §14.19.1: the shared library keeps no table's opening; one stored by older code is dropped on its next write.

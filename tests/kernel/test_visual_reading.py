@@ -528,10 +528,13 @@ def test_reviewed_skeleton_exposes_choices_without_authorizing_play(kernel, tmp_
     assert not finish(kernel, job)['opening_ready']
     status = kernel.ok('module.status', {'module_id': mid})
     assert len(status['opening_candidates']) == 2 and not status['opening_ready']
-    chosen = kernel.ok('module.opening.choose', {'module_id': mid, 'scene': 'First'})
-    assert not chosen['opening_ready']
+    # §14.19.1/§14.19.10: a choice among the book's openings is a table's; the library refuses it without a campaign.
+    refused = kernel.err('module.opening.choose', {'module_id': mid, 'scene': 'First'})
+    assert refused['code'] == 'invalid_params' and refused['details']['reason'] == 'campaign_required'
+    assert sorted(row['node_id'] for row in refused['details']['candidates']) == ['scene-first', 'scene-second']
+    assert not kernel.ok('module.status', {'module_id': mid})['opening_ready']
     assert len(ModuleStore(kernel.workspace).read_graph(mid)['nodes']) == 3
-    request(kernel, mid, 'opening', foreground=True)
+    request(kernel, mid, 'opening', foreground=True, focus='scene-first')
     opening_job = claim(kernel, mid)
     assert opening_job['purpose'] == 'opening' and opening_job['focus'] == 'scene-first'
 

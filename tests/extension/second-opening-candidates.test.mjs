@@ -196,12 +196,16 @@ test("the product kernel reports both briefings as opening candidates and the ch
 		`the second briefing is a candidate though only alternative-to marks it: ${JSON.stringify(status.opening_candidates)}`);
 	const second = status.opening_candidates.find((row) => row.node_id === "scene-second-briefing");
 
-	// The library choice the setup host records for a campaign that already exists resolves the second opening too.
-	const chosen = await kernel.ok("module.opening.choose", { module_id: mid, scene: second.scene });
-	assert.equal(chosen.start_scene, "scene-second-briefing");
+	// §14.19.1: the shared library records no table's opening; unscoped, a choice among two is refused with the candidates.
+	const unscoped = await kernel.err("module.opening.choose", { module_id: mid, scene: second.scene });
+	assert.equal(unscoped.code, "invalid_params");
+	assert.equal(unscoped.details.reason, "campaign_required");
 
 	const campaign = "c-second-briefing";
 	const created = await kernel.ok("campaign.create", { id: campaign, module: mid, start_scene: second.scene, play_language: "en" });
+	// The choice the setup host records for a campaign that already exists resolves the second opening too.
+	const chosen = await kernel.ok("module.opening.choose", { module_id: mid, scene: second.scene, campaign });
+	assert.equal(chosen.start_scene, created.campaign.opening_scene, "the campaign's answer names the second briefing by the campaign's handle");
 	const meta = JSON.parse(await readFile(join(home, ".coc", "campaigns", campaign, "campaign.json"), "utf8"));
 	assert.equal(typeof meta.opening_scene, "string");
 	assert.equal(created.campaign.opening_scene, meta.opening_scene);

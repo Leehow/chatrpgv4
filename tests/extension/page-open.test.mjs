@@ -245,6 +245,30 @@ test('live7 du-1101b: a stale library opening_choice is not replayed and not clo
   assert.equal(JSON.parse(await readFile(join(store.moduleDir(f.mid),'module.json'),'utf8')).opening_choice,undefined);
 });
 
+test('§14.19.10: a fork made before the anchor holds another opening: the campaign\'s wins on every read, one telemetry row',async t=>{
+  const two={...ANSWERS,locate:{openings:[{name:'Prologue',pages:[16,17]},{name:'Ras the owner',pages:[20]}],setup_pages:[6]}};
+  const f=await bound(t),host=runtime(two);runtime.sha=f.sha;
+  const asked=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});
+  await f.modules.handlers['module.reference.publish']({module_id:f.mid,work_dir:asked.workDir,guidance_key:'e'.repeat(64),play_language:'en'});
+  const [first,second]=(await f.modules.source.store.readGraph(f.mid)).entry_scene_ids;
+  const campaign='c-old',dir=join(f.context.campaignsRoot,campaign);await mkdir(dir,{recursive:true});
+  await writeFile(join(dir,'campaign.json'),JSON.stringify({id:campaign,module_id:f.mid,opening_scene:'own-opening',setup:{node_handles:{[first]:'own-opening',[second]:'other-opening'}}}));
+  await api.ensureCampaignModule(f.context,campaign,f.mid);
+  const fork=new api.ModuleStore(api.moduleContext(f.context,campaign)),stored=await fork.module(f.mid);
+  assert.equal(stored.opening_choice.start_scene,first);
+  stored.opening_choice={start_scene:second,at:'2026-11-01T03:30:01Z'};
+  await api.sourceState(f.context.stateRoot).update(fork.moduleDir(f.mid),{metadata:stored},f.context.locks);
+  for(let i=0;i<3;i++)assert.equal((await fork.module(f.mid)).opening_choice.start_scene,first,'the campaign\'s opening, not the stale fork\'s');
+  const rows=(await readFile(join(dir,'telemetry.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line)).filter(r=>r.event==='fork_opening_mismatch');
+  assert.equal(rows.length,1);
+  assert.deepEqual({...rows[0],at:undefined},{at:undefined,lane:'reading',event:'fork_opening_mismatch',campaign,module_id:f.mid,fork_choice:second,campaign_opening:first});
+  // A campaign that names no opening keeps the fork's value.
+  await writeFile(join(dir,'campaign.json'),JSON.stringify({id:campaign,module_id:f.mid,setup:{node_handles:{}}}));
+  stored.opening_choice={start_scene:second,at:'2026-11-01T03:30:01Z'};
+  await api.sourceState(f.context.stateRoot).update(fork.moduleDir(f.mid),{metadata:stored},f.context.locks);
+  assert.equal((await fork.module(f.mid)).opening_choice.start_scene,second);
+});
+
 test('§14.19.10: a single-entry book published without start_scene keeps its sole entry in the library; a stale table choice beside it is ignored',async t=>{
   const f=await bound(t),host=runtime(ANSWERS);runtime.sha=f.sha;
   const result=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});

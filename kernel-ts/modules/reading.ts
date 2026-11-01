@@ -1,7 +1,7 @@
 import {attachesReadingFocus, sameReadingFocusDomain, compareReadingPriority, leanReading} from './reading-policy.js';
 /** One persisted source queue; native descriptor leases own publication attempts. */
 import { createHash, randomUUID } from 'node:crypto';
-import { ownOpeningChoice } from './opening-choice.js';
+import { BOOK_OPENING, isCampaignFork, ownOpeningChoice } from './opening-choice.js';
 import { copyFile, mkdir, readFile, rename, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join, relative } from 'node:path';
 import { internalError, RpcError } from '../errors.js';
@@ -2882,9 +2882,17 @@ export class Reading {
             const contract = await this.store.contract(), candidates = await this.store.candidates(graph!), chosen = resolveStartScene(graph!, string(truth(params.scene) ? params.scene : ''), contract);
             if (chosen === null)
                 throw new RpcError('needs_choice', 'choose one of the authored openings', { fix: 'use a scene from details.candidates', details: { candidates } });
+            // §14.19.1/§14.19.10: the library holds no table's opening. Unscoped, the only opening it records is the book's
+            // own (its one authored entry, marked `of: 'book'`); a choice among several is a table's and needs its campaign.
+            const shared = !isCampaignFork(meta);
+            if (shared && candidates.length > 1)
+                throw new RpcError('invalid_params', "choosing among a book's openings is a table's choice; pass the campaign it is for", {
+                    fix: `module.opening.choose {module_id: ${JSON.stringify(mid)}, scene, campaign: <the table's campaign id>}`,
+                    details: { reason: 'campaign_required', field: 'campaign', candidates }
+                });
             applyOpeningChoice(graph!, chosen, contract);
             const opening = await this.store.opening(graph!);
-            meta.opening_choice = { start_scene: chosen, at: nowIso() };
+            meta.opening_choice = { start_scene: chosen, at: nowIso(), ...(shared ? { of: BOOK_OPENING } : {}) };
             meta.opening = opening;
             meta.opening_ready = truth(opening.opening_ready) && (!truth(meta.reading_version) || await this.materialReady(mid, chosen));
             if (truth(meta.reading_version))
