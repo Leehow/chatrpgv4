@@ -237,6 +237,8 @@ export function createModuleRuntime(context: KernelContext) {
         if (method === 'module.read.ahead') return ahead(params, true);
         if (method === 'module.source.outline') return outline(params);
         if (method === 'module.skeleton.index') return skeletonIndex(params);
+        // §22.6: a reference publication no campaign asked for is the shared library's, read by every table on the book.
+        if (method === 'module.reference.publish' && params.campaign === undefined) return library.handlers[method]({ ...params, _shared_library: true });
         if (libraryOnly.has(method) || params.campaign === undefined || typeof params.module_id !== 'string')
             return library.handlers[method](params);
         const id = required(params, 'module_id'), campaign = params.campaign;

@@ -2254,6 +2254,39 @@ The guide never writes the prologue: `prompts/setup.md` and the prologue label s
 
 **14.19.6 The three ends (§31).** Writer: the preparation step's receipt of `start_scene` (host record); `campaign.create {start_scene}` and `module.opening.choose {campaign}` (kernel record). Reader: `fillParams` (the rejoin, `campaign.create`), `ensureGuidance` (`opening`), the kernel's `opening_scene` / scoped `opening_choice` for prologue, draft era, completion and `table.open`. Actor: the guide, who asks the question the result carries and relays `player_reason`; the player, who chooses. Tests: `tests/extension/setup-opening-choice.test.mjs` (a two-opening book whose opening read times out keeps the choice through the rejoin and `campaign.create` pins it; `create-campaign` with no recorded opening answers `needs_choice` with the candidates and creates nothing; a campaign created without its opening blocks with the question, keeps the guide's text, and `prepare-module {start_scene}` records it, pins it on the campaign and prepares guidance in the same call; a single-opening book unchanged; the Haunting unchanged on the real kernel), `tests/extension/character-guidance.test.mjs` (the two §14.19 cases), `tests/extension/setup-player-reasons.test.mjs`.
 
+**14.19.7 A chosen opening whose guidance failed stays preparable (2026-11-01, live7 du-1101a).** Live7 du-1101a gk:
+the preparation step succeeded once, `create-campaign` asked for the opening, and the player chose. The preparation for
+that opening then failed (`preparation_failed`). Recording the choice had already closed the question, so
+`prepare-module` answered "already done and is not redone". `create-campaign` carried the recorded opening together with
+the accepted guidance of another opening, and the kernel refused it ("the selected scene does not match the accepted
+guidance") on every call. Seven setup turns ended with no campaign. Three rules now apply.
+
+1. **The remedy stays open.** A preparation that fails after the setup recorded a choice keeps that choice, and the host
+   marks its guidance as owed (`openingGuidanceOwed`). While guidance is owed, the preparation step stays open even though
+   it is booked: `prepare-module {retry: true}` prepares the recorded opening. Until a preparation succeeds,
+   `create-campaign` does not run and answers `guidance_failed`, with `cause` and `details.reason`
+   `opening_guidance_not_prepared` and a `fix` naming the preparation step. `campaign.create`'s refusal for an accepted
+   guidance of another opening now carries `details.reason: "guidance_scene_mismatch"` (with `given` and
+   `guidance_scene`) and a `fix`; the host treats it the same way.
+2. **The shared library does not choose for a setup.** A `module.reference.publish` that no campaign asked for and that
+   names no `start_scene` is the shared library's. It no longer takes the library's recorded `opening_choice`, which is
+   another table's (§22.6). On a book with several openings it answers the question, not a guide. Live7: mm-sev chose
+   opening 1 at 02:06:24; gk-sev's preparation, which named no opening, published at 02:06:31 a guide bound to that
+   opening, which its own player then declined. A campaign's own workspace still carries its own choice over.
+3. **Why the preparation failed.** Every `provider_refused` in both arms (9 reader runs) was `task_budget_exhausted /
+   budget_input_tokens` with `requested: 1000000` against a `1000000` ceiling, after about 5k tokens had been used. A
+   request carrying a page image reserves the model's whole context window, and an independent reader budget held that
+   only while nothing had been used. The independent owner's input ceiling is now `INDEPENDENT_INPUT_TOKENS = 2_000_000`:
+   one full-window reservation beside up to one window of actual use, with spend still bound by the $10 ceiling. It was
+   not a network failure, and no Jev family was involved.
+
+Tests:
+- `tests/extension/setup-opening-choice.test.mjs` ("live7 du-1101a"): question, failed preparation, the campaign waits,
+  retry, the campaign is created on the chosen opening.
+- `tests/extension/page-open.test.mjs` ("live7 du-1101a"): a second setup naming no opening is asked, not bound to the
+  first one's choice.
+- `tests/extension/jev-provider-budget.test.mjs` ("live7 du-1101a"): a second full-window image request after use.
+
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
 一条世界线就是战役 sidecar 仓库里的一条分支。玩家在一个战役里同一时刻只玩一条线；可以分叉、回溯、切换、汇流；所有线都留着（证据永不删除）。什么跨线留下、谁记得别的线、汇流时怎么合，由模组图声明、内核确定性地算；守秘人只在胶囊里看到这是第几圈、锚点在哪、留下了什么、谁记得、有哪些回声可投放。世界线操作是世界的改变，所以走 `apply`（法则二），并在那一回合提交之后由内核执行——守秘人仍然只有七个动词。旧树世界线系统的双时态断言、九种记忆状态、跨战役转移、自动合并策略都不回来。

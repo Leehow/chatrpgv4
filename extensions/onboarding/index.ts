@@ -221,6 +221,13 @@ export default function (pi: ExtensionAPI) {
   /** §14.19: the openings the host last answered `needs_choice` with; the preparation step stays open until one is recorded. */
   let openingQuestion: unknown[] | undefined;
   /**
+   * §14.19.5: the recorded opening whose guidance is not prepared yet -- its preparation failed after the choice, or the
+   * kernel refused a campaign whose accepted guidance is for another opening. The preparation step stays open (it is the
+   * only step that can prepare it) until a preparation succeeds. Live7 du-1101a gk: the choice cleared the question, the
+   * preparation failed, prepare-module was "already done" and create-campaign refused the guidance forever.
+   */
+  let openingGuidanceOwed: string | undefined;
+  /**
    * §225.3: the openings the player has been shown (candidate node ids), across every question this setup asked.
    * A candidate the book's reading brought in after the player chose -- or one the guide chose for them without a
    * question -- is not in it, and create-campaign asks again instead of carrying the old choice.
@@ -842,7 +849,7 @@ export default function (pi: ExtensionAPI) {
 	function remedyOpen(id: string | undefined): boolean {
 		const preparation = stepWithOp('module.prepare');
 		if (!preparation || id !== preparation.id) return false;
-		return setupBlock ? guidanceBlock(setupBlock) : openingQuestion !== undefined;
+		return setupBlock ? guidanceBlock(setupBlock) : openingQuestion !== undefined || openingGuidanceOwed !== undefined;
 	}
 
 	/** The preparation step's id when it is this source's remedy, for the refusal's fix. */
@@ -1085,6 +1092,15 @@ export default function (pi: ExtensionAPI) {
 			if (move.move === 'ask') return { ok: false, step: id, code: 'brief_incomplete', missing: move.missing, brief: renderBrief(setupSlots, setupNotes, guidedCap) };
 		}
 		if (step.ops.some((op) => op.method === 'campaign.create')) {
+			// §14.19.5: a recorded opening whose guidance did not prepare is prepared before the campaign binds it.
+			if (openingGuidanceOwed && openingGuidanceOwed === asString(context.start_scene)) {
+				const remedy = stepWithOp('module.prepare')?.id ?? 'the preparation step';
+				return withReason({ok: false, step: id, code: 'guidance_failed', cause: 'opening_guidance_not_prepared',
+					message: `the guidance for the chosen opening ${openingGuidanceOwed} is not prepared yet`,
+					fix: `call ${remedy} again (retry: true); it prepares the guidance for the recorded opening, and ${id} comes after it`,
+					details: {reason: 'opening_guidance_not_prepared', start_scene: openingGuidanceOwed},
+					progress: progressLine(steps, state())}, startedAt);
+			}
 			const unchosen = await unchosenOpenings();
 			if (unchosen) {
 				const {candidates, unseen, previous} = unchosen;
@@ -1125,11 +1141,17 @@ export default function (pi: ExtensionAPI) {
 				poseOpening(question);
 				// A scene the book does not offer is no choice: the one this call brought is not kept.
 				if (chosen && context.start_scene === chosen) context.start_scene = previousChoice;
+			} else if (preparing && asString(context.start_scene) && completed.has(id)) {
+				// §14.19.5: the choice stands, its guidance is owed, and this step stays the remedy.
+				openingGuidanceOwed = asString(context.start_scene);
 			}
+			if (id === stepWithOp('campaign.create')?.id && asString(asRecord(outcome.details).reason) === 'guidance_scene_mismatch' && asString(context.start_scene))
+				openingGuidanceOwed = asString(context.start_scene);
 			// A step that did not succeed is not booked: the same step can be tried again with the parameters the hint names.
 			return withReason({ ...outcome, step: id, progress: progressLine(steps, state()) }, startedAt);
 		}
 		settle(step, outcome);
+		if (preparing) openingGuidanceOwed = undefined;
 		if (preparing) {
 			readingSince.clear();
 			const refused = await afterPreparation(id, outcome, startedAt, signal);

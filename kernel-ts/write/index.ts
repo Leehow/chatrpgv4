@@ -918,7 +918,9 @@ export function createWriteRuntime(context: KernelContext, contributions: WriteC
             if (accepted.play_language !== language)
                 throw new RpcError('invalid_params', `the accepted character guidance is for play_language ${repr(accepted.play_language)}, not ${repr(language)}; create the campaign with play_language ${repr(accepted.play_language)}`);
             if (chosen && graph && graph.handle(graph.scene(chosen)) !== graph.handle(graph.scene(accepted.scene)))
-                throw new RpcError('invalid_params', 'the selected scene does not match the accepted guidance');
+                throw new RpcError('invalid_params', 'the selected scene does not match the accepted guidance', {
+                    fix: 'prepare the guidance for the selected opening (the preparation step with that start_scene), then create the campaign',
+                    details: {reason: 'guidance_scene_mismatch', field: 'start_scene', given: chosen, guidance_scene: string(accepted.scene)}});
             chosen = accepted.scene;
         }
         if (chosen) {

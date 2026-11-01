@@ -59,7 +59,9 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
   nodes.push({node_id:entry.id,node_kind:'scene',name:entry.name,summary:pageText?openingText(entry):excerpt?.text??'',visibility:'keeper-only',source_refs:openingPages(entry).map(page=>({page})),
    properties:{is_entrance:true,source_reference_anchor:true,...(pageText?{opening_pages_text:true}:{}),...(entry.era_text?{investigator_setup:{era:entry.era_text}}:{})}});}
  const graph=assembleVisual(previous,{nodes,claims:[],node_refs:[],ready_nodes:[],critical:[],required_review:[],coverage:{},dependencies:[],review_policy:'module-logic-v1'},meta,contract);
- const requested=string(params.start_scene??''),priorChoice=string(row(meta.opening_choice).start_scene??'');
+ // §22.6/§14.19: the shared library's recorded choice is another table's when no campaign asked (live7 du-1101a: one setup's
+ // guidance was bound to the opening a concurrent setup chose); only a campaign's own workspace carries its choice over.
+ const requested=string(params.start_scene??''),priorChoice=params._shared_library===true?'':string(row(meta.opening_choice).start_scene??'');
  const chosen=requested?resolveStartScene(graph,requested,contract):entryIds.includes(priorChoice)?priorChoice:entries.length===1?entryIds[0]:null;
  if(requested&&!chosen)fail('Selected opening is not in the bound original context');
  if(chosen&&!entryIds.includes(chosen))fail('Selected opening has no bound original reference');

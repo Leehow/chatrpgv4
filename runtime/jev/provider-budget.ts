@@ -163,11 +163,16 @@ export function createTaskProviderBudget(lease:TaskLease, options:{record?:(even
  * A separately declared finite owner for work that has no foreground task. Never a child fallback. `clock` (SL-87, tests
  * only): the deadline is measured and enforced on it; absent, the host's own clock, as before.
  */
+export const INDEPENDENT_INPUT_TOKENS = 2_000_000;
 export function independentProviderBudget(owner:string, signal?:AbortSignal, timeoutMs=180_000, clock?:TaskClock):{budget:TaskProviderBudget;close():void} {
   const lease=new TaskLease({owner,goal:owner,scope:{owner,audience:'system'},capabilities:[],readSet:[],signal,...(clock?{clock}:{}),
     // A provider that rejects its output-limit field reserves its full declared maxTokens. Cover Flapcode gpt-6-luna
     // (128,000) so the lane reaches normal dispatch; actual usage still settles against the unchanged $10 ceiling.
-    budget:{deadlineAt:(clock?clock.now():Date.now())+timeoutMs,remainingInputTokens:1_000_000,remainingOutputTokens:131_072,remainingCostUsd:10,remainingActions:16}});
+    // A request carrying a page image reserves the model's whole context window (1,000,000 on the reader models), so a
+    // 1,000,000 ceiling held that reservation only while nothing had been used: live7 du-1101a, every source-reference
+    // guidance reader whose second image call came after ~5k used was refused `budget_input_tokens` (provider_refused).
+    // Room for one full-window reservation beside up to one window of actual use; spend stays bound by the $10 ceiling.
+    budget:{deadlineAt:(clock?clock.now():Date.now())+timeoutMs,remainingInputTokens:INDEPENDENT_INPUT_TOKENS,remainingOutputTokens:131_072,remainingCostUsd:10,remainingActions:16}});
   return {budget:createTaskProviderBudget(lease),close:()=>lease.close()};
 }
 

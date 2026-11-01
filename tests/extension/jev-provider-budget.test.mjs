@@ -225,3 +225,16 @@ test('child crash without usage retains granted reservation; budgeted override c
  const denied=await runReader({cwd:f.home,brief:'No bypass',providerBudget:createTaskProviderBudget(root)},{...f.context,env:{...f.context.env,PI_COC_READER_CMD:JSON.stringify([process.execPath,'-e','process.exit(0)'])}});
  assert.equal(denied.ok,false);assert.match(denied.error,/private provider handshake/);
 });
+
+test('live7 du-1101a: an independent owner holds a second full-window image request after the first one used tokens',async()=>{
+ const wide={...model,contextWindow:1_000_000,maxTokens:8192};
+ const image={model:'bounded',input:[{role:'user',content:[{type:'input_image',image_url:'data:image/png;base64,AAAA'}]}],max_output_tokens:100};
+ const owner=independentProviderBudget('standalone-reader');
+ try{
+  const first=await owner.budget.reserve(boundProviderRequest(wide,image).bound);
+  first.settle({input:5240,output:50,cacheRead:0,cacheWrite:0,cost:{total:0.01}});
+  const second=await owner.budget.reserve(boundProviderRequest(wide,image).bound);
+  second.settle({input:5300,output:50,cacheRead:0,cacheWrite:0,cost:{total:0.01}});
+ }finally{owner.close();}
+});
+

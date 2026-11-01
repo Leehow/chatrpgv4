@@ -451,3 +451,59 @@ test("create-campaign pins the guidance key prepare-module accepted, so a resume
 	assert.equal(create.params.guidance_key, key, "the campaign pins the accepted guidance");
 	assert.equal(results[2].character_guidance?.scene, "The Dock", "the accepted guide is the one loaded");
 });
+
+test("live7 du-1101a: a preparation that fails after the opening is chosen keeps prepare-module open, and the retry creates the campaign on it (§14.19.5)", async (t) => {
+	// The prepared guide was not for the player's opening; the player chose the other; that preparation failed once.
+	// Before: the choice cleared the question, prepare-module was "already done", create-campaign refused forever.
+	const table = await openTable({
+		mode: "setup", campaign: null, env: moduleEnv("two-door", OPENINGS),
+		responses: [
+			setupCall({ step: "choose-source", kind: "module", module: "two-door" }),
+			setupCall({ step: "prepare-module" }),
+			fauxAssistantMessage("The book is prepared."),
+		],
+	});
+	t.after(() => table.dispose());
+	installBook(table, "two-door", OPENINGS);
+	const packets = [];
+	withGuidanceReader(table, packets);
+	const prepared = [];
+	let failNext = false;
+	table.emit("coc:reading-bridge", { async prepare(params) {
+		prepared.push(params);
+		if (failNext) { failNext = false; throw Object.assign(new Error("Source guidance could not be checked. Your source is saved; retry preparation."),
+			{ code: "preparation_failed", details: { reason: "provider_refused" } }); }
+		return { ok: true, module_id: "two-door", opening_ready: true };
+	} });
+	await table.session.prompt("Let's play the book with two doors.");
+	await waitForIdle(table.session);
+
+	table.faux.setResponses([
+		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
+		fauxAssistantMessage("Which opening?"),
+	]);
+	await table.session.prompt("Make the campaign.");
+	await waitForIdle(table.session);
+	assert.equal(setupResults(table.session).at(-1).code, "needs_choice");
+
+	failNext = true;
+	table.faux.setResponses([
+		setupCall({ step: "prepare-module", start_scene: "tower" }),
+		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
+		setupCall({ step: "prepare-module", retry: true }),
+		setupCall({ step: "create-campaign", id: "two-door-table", title: "Two doors", play_language: "en" }),
+		fauxAssistantMessage("Who are you?"),
+	]);
+	await table.session.prompt("The tower, please.");
+	await waitForIdle(table.session);
+	const [failed, early, retried, created] = setupResults(table.session).slice(-4);
+	assert.equal(failed.code, "preparation_failed", JSON.stringify(failed));
+	assert.equal(early.code, "guidance_failed", `the campaign waits for the chosen opening's guidance: ${JSON.stringify(early)}`);
+	assert.equal(early.details.reason, "opening_guidance_not_prepared");
+	assert.equal(retried.ok, true, `prepare-module is still the remedy, not "already done": ${JSON.stringify(retried)}`);
+	assert.equal(prepared.at(-1).start_scene, "tower", "the retry prepares the recorded opening");
+	assert.equal(created.ok, true, JSON.stringify(created));
+	const creates = table.kernelRequests().filter((row) => row.method === "campaign.create");
+	assert.equal(creates.length, 1, "the kernel is asked once, on the prepared opening");
+	assert.equal(creates[0].params.start_scene, "tower");
+});

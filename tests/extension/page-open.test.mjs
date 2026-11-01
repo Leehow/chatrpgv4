@@ -176,3 +176,21 @@ test('a bounded live test stops reading at PI_COC_READ_DEADLINE_MS',async t=>{
   await new Promise(resolve=>setTimeout(resolve,60));
   assert.ok(rows.some(row=>row.event==='deadline_stop'&&row.deadline_ms===20));
 });
+
+test('live7 du-1101a: a setup that names no opening is not bound to the opening another setup of the same book chose',async t=>{
+  // Two setups of one book in one tree: the first chose its opening; the second prepared without one and, through the
+  // shared library's recorded choice, got guidance bound to the first one's opening it never chose.
+  const two={...ANSWERS,locate:{openings:[{name:'Prologue',pages:[16,17]},{name:'Ras the owner',pages:[20]}],setup_pages:[6]}};
+  const f=await bound(t),host=runtime(two);runtime.sha=f.sha;
+  const first=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});
+  const blocked=await f.modules.handlers['module.reference.publish']({module_id:f.mid,work_dir:first.workDir,guidance_key:'a'.repeat(64),play_language:'en'});
+  assert.equal(blocked.setup_ready,false,'two openings and no choice: the question, not a guide');
+  const scene=blocked.opening.choice.candidates[0].scene;
+  const chose=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',focus:scene,model:{id:'fixture/model'}});
+  const a=await f.modules.handlers['module.reference.publish']({module_id:f.mid,work_dir:chose.workDir,guidance_key:'b'.repeat(64),play_language:'en',start_scene:scene});
+  assert.equal(a.setup_ready,true,'the first setup chose and has its guide');
+  const other=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});
+  const b=await f.modules.handlers['module.reference.publish']({module_id:f.mid,work_dir:other.workDir,guidance_key:'c'.repeat(64),play_language:'en'});
+  assert.equal(b.setup_ready,false,'the second setup is asked for its own opening, not handed the first one\'s');
+  assert.equal(b.guidance,undefined);
+});
