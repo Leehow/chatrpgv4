@@ -372,6 +372,11 @@ function atPointer(draft: Row, pointer: unknown): unknown {
 	}
 	return value;
 }
+/** §276.2: the kept-chapter file's format, and the evidence a kept chapter was located from. */
+const KEPT_VERSION = 2;
+type KeptSource = "opening" | "scene_majority" | "pointer_majority";
+const KEPT_SOURCE = { opening: "opening", scene: "scene_majority", pointer: "pointer_majority" } as const satisfies Record<string, KeptSource>;
+const KEPT_SOURCES: ReadonlySet<unknown> = new Set(Object.values(KEPT_SOURCE));
 /**
  * The one repair an unsupported number has, said in words the repair round can act on.
  *
@@ -574,20 +579,25 @@ export class ReadingService implements ReadingBridge {
 	private async keptChapter(campaign: string, mid: string): Promise<Chapter | undefined> {
 		const key = JSON.stringify([campaign, mid]);
 		if (this.keptChapters.has(key)) return this.keptChapters.get(key);
-		try { const kept = JSON.parse(await readFile(this.chapterFile(campaign), "utf8"))?.[mid];
-			if (kept && typeof kept.name === "string" && Number.isSafeInteger(kept.first) && Number.isSafeInteger(kept.last)) {
-				this.keptChapters.set(key, kept); return kept; } }
+		// §276.2: a kept entry counts only in the versioned format and with the evidence it was located from. An entry with no
+		// version or no known source (written before 2026-11-01, when a first-chapter stand-in was kept too) is void: the next
+		// read relocates from evidence and overwrites it.
+		try { const file = JSON.parse(await readFile(this.chapterFile(campaign), "utf8")), kept = file?.version === KEPT_VERSION ? file.modules?.[mid] : undefined;
+			if (kept && typeof kept.name === "string" && Number.isSafeInteger(kept.first) && Number.isSafeInteger(kept.last) && KEPT_SOURCES.has(kept.source)) {
+				const chapter = { name: kept.name, first: kept.first, last: kept.last };
+				this.keptChapters.set(key, chapter); return chapter; } }
 		catch { /* none kept yet */ }
 		return undefined;
 	}
-	private async keepChapter(campaign: string, mid: string, chapter: Chapter): Promise<void> {
+	private async keepChapter(campaign: string, mid: string, chapter: Chapter, source: KeptSource): Promise<void> {
 		this.keptChapters.set(JSON.stringify([campaign, mid]), chapter);
 		const file = this.chapterFile(campaign);
-		let all: Row = {};
-		try { all = JSON.parse(await readFile(file, "utf8")) ?? {}; } catch { /* first */ }
-		all[mid] = { name: chapter.name, first: chapter.first, last: chapter.last, campaign };
+		let modules: Row = {};
+		try { const all = JSON.parse(await readFile(file, "utf8")); if (all?.version === KEPT_VERSION && all.modules && typeof all.modules === "object") modules = all.modules; }
+		catch { /* first */ }
+		modules[mid] = { name: chapter.name, first: chapter.first, last: chapter.last, campaign, source };
 		await mkdir(dirname(file), { recursive: true });
-		await writeFile(file, JSON.stringify(all) + "\n");
+		await writeFile(file, JSON.stringify({ version: KEPT_VERSION, modules }) + "\n");
 	}
 	/** The book pages the graph holds for a name (the scene the party is at, the opening scene); spelling and identity only. */
 	private async graphPages(campaign: string, query: string): Promise<number[]> {
@@ -675,7 +685,7 @@ export class ReadingService implements ReadingBridge {
 		const changed = resolved === "first" ? this.standIns.get(key) !== `${chapter.first}-${chapter.last}`
 			: !before || before.first !== chapter.first || before.last !== chapter.last;
 		if (resolved === "first") this.standIns.set(key, `${chapter.first}-${chapter.last}`);
-		else { this.standIns.delete(key); if (changed) await this.keepChapter(campaign, mid, chapter).catch(() => undefined); }
+		else { this.standIns.delete(key); if (changed) await this.keepChapter(campaign, mid, chapter, KEPT_SOURCE[resolved as keyof typeof KEPT_SOURCE]).catch(() => undefined); }
 		if (changed) this.note({ lane: "reading", event: "chapter_scope", module_id: mid, campaign, chapter: chapter.name, first: chapter.first, last: chapter.last,
 			resolved, source: book.source, ...(before ? { previous: before.name } : {}) });
 		// §276.5: the reference chapters read from any chapter; the current one is never its own resident.

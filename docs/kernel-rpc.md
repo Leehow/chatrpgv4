@@ -54020,7 +54020,12 @@ Only a chapter located from evidence is kept: the scene's or the pointer index's
 is a stand-in for that read alone, never written to the kept file, so the next read with a scene or an opening locates the
 party (live 1031: a first-chapter fallback kept at the opening turned every later read into `kept` and held the party in the
 keeper's background for the whole table). The stand-in is noted once per campaign and module until a chapter is located.
-A kept file written before this rule may hold such a stand-in; it is read as any kept chapter. Telemetry:
+The kept file is versioned: `{"version": 2, "modules": {"<module_id>": {name, first, last, campaign, source}}}`, with
+`source` the evidence the chapter was located from: `opening`, `scene_majority` (the scene's graph pages) or
+`pointer_majority` (the pointer index's pages). On read, a file without that version, or an entry with no source or an
+unknown one, is void: it is not used as the kept chapter, and the next read relocates from evidence and overwrites it. Files
+written before 2026-11-01 (`{"<module_id>": {name, first, last, campaign}}`) are all void, since one may hold a first-chapter
+stand-in kept by the old rule. Telemetry:
 `lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `pointer`, `kept`, `opening`, `first`) and the
 chapter source (`bookmarks`, `headings`, `none`).
 

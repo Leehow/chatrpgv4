@@ -371,3 +371,25 @@ test('§276.2: the first chapter is a stand-in, never kept: a later read with an
  fresh.reading.dispose();
 }));
 
+
+test('§276.2: a kept file without the format version or a known source is void; a versioned entry with its evidence is kept',async()=>lean(async()=>{
+ const {createHash}=await import('node:crypto'),{readFile}=await import('node:fs/promises');
+ const write=async(root,campaign,value)=>{const dir=join(root,'.coc','chapter-scope');await mkdir(dir,{recursive:true});
+  const file=join(dir,`${createHash('sha256').update(campaign).digest('hex').slice(0,32)}.json`);await writeFile(file,JSON.stringify(value)+'\n');return file;};
+ // Before 2026-11-01 a first-chapter stand-in was written in this shape and read back as kept for good.
+ const old=playtestScratch('chapter-scope','kept-legacy-');
+ const file=await write(old,'c1',{'blood-road':{name:'Intro',first:3,last:5,campaign:'c1'}});
+ const legacy=await service(old,{scene:'a place the table made',graph:{'Opening road':[6,7]},campaignOpening:'Opening road'});
+ assert.deepEqual([(await legacy.reading.chapterScope('blood-road','c1')).resolved,(await legacy.reading.chapterScope('blood-road','c1')).name],['opening','Diner'],'the old entry is not kept');
+ assert.deepEqual(JSON.parse(await readFile(file,'utf8')),{version:2,modules:{'blood-road':{name:'Diner',first:6,last:12,campaign:'c1',source:'opening'}}},'overwritten from evidence');
+ legacy.reading.dispose();
+ for(const entry of [{version:2,modules:{'blood-road':{name:'Intro',first:3,last:5,campaign:'c1'}}},{version:2,modules:{'blood-road':{name:'Intro',first:3,last:5,campaign:'c1',source:'first'}}}]){
+  const root=playtestScratch('chapter-scope','kept-void-');await write(root,'c1',entry);
+  const {reading}=await service(root,{scene:'a place the table made',graph:{'Opening road':[6,7]},campaignOpening:'Opening road'});
+  assert.equal((await reading.chapterScope('blood-road','c1')).resolved,'opening','no source, or an unknown one, is void');reading.dispose();}
+ const kept=playtestScratch('chapter-scope','kept-versioned-');
+ await write(kept,'c1',{version:2,modules:{'blood-road':{name:'Intro',first:3,last:5,campaign:'c1',source:'pointer_majority'}}});
+ const versioned=await service(kept,{scene:'a place the table made',graph:{'Opening road':[6,7]},campaignOpening:'Opening road'});
+ assert.deepEqual([(await versioned.reading.chapterScope('blood-road','c1')).name,(await versioned.reading.chapterScope('blood-road','c1')).resolved],['Intro','kept']);
+ versioned.reading.dispose();
+}));
