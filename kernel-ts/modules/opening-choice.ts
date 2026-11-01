@@ -66,6 +66,12 @@ async function campaignAnchor(context: KernelContext, directory: string): Promis
  * `sceneIds` loads the book's scene ids, and is asked only on a mismatch the handles cannot settle.
  */
 export async function anchorForkOpening(context: KernelContext, meta: Row, sceneIds: () => Promise<Set<string>>): Promise<void> {
+    // Advisory: a missing campaign/world/graph file or any read failure leaves the metadata as it was, so the caller's own checks speak.
+    const original = meta.opening_choice;
+    try { await anchorForkOpeningUnchecked(context, meta, sceneIds); } catch { if (original === undefined) delete meta.opening_choice; else meta.opening_choice = original; }
+}
+
+async function anchorForkOpeningUnchecked(context: KernelContext, meta: Row, sceneIds: () => Promise<Set<string>>): Promise<void> {
     if (!isCampaignFork(meta) || !truth(row(meta.opening_choice).start_scene)) return;
     const campaign = string(meta.campaign_scope), moduleId = string(meta.id), fork = string(row(meta.opening_choice).start_scene);
     const directory = join(context.campaignsRoot, campaign), { opening, handles } = await campaignAnchor(context, directory);
