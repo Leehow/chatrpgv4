@@ -213,3 +213,12 @@ test('live7 cs-1101b: a setup\'s chosen opening is not written into the shared l
   const status=await f.modules.handlers['module.status']({module_id:f.mid});
   assert.equal(status.reading.idle,true,'nothing will move it: detectable');
 });
+
+test('§14.19.9: a publication for an opening the reference does not cover names that reason, so the host reads it instead',async t=>{
+  const f=await bound(t),host=runtime(ANSWERS);runtime.sha=f.sha;
+  const result=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});
+  await assert.rejects(f.modules.handlers['module.reference.publish']({module_id:f.mid,work_dir:result.workDir,guidance_key:'f'.repeat(64),play_language:'en',start_scene:'tongshen'}),
+    error=>error.details?.reason==='opening_not_in_reference'&&error.details.start_scene==='tongshen');
+  const meta=JSON.parse(await readFile(join(f.modules.source.store.moduleDir(f.mid),'module.json'),'utf8'));
+  assert.equal(meta.source_reference,undefined,'nothing was written before the refusal');
+});

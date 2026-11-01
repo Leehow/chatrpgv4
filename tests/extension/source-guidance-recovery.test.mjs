@@ -5,10 +5,11 @@ import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ReadingService} from '../../extensions/module/reading-service.ts';
+import {KernelError} from '../../extensions/kernel/client.ts';
 
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const outcome={ok:true,code:0,timedOut:false,ms:1,stderr:'',command:[]};
-async function fixture(t,failures){
+async function fixture(t,failures,{publish}={}){
  const home=await mkdtemp(join(tmpdir(),'guidance-recovery-'));
  t.after(()=>rm(home,{recursive:true,force:true}));
  const calls=[],runs=[],rows=[],sourceSha='a'.repeat(64),text='A public harbor introduction.';
@@ -36,13 +37,13 @@ async function fixture(t,failures){
   calls.push(method);
   if(method==='module.reference.status')return {};
   if(method==='module.source.snapshot')return {pdf:join(home,'.coc/modules/book/source.pdf'),page_count:1,file_sha256:sourceSha};
-  if(method==='module.reference.publish')return {setup_ready:true,state:'ready'};
+  if(method==='module.reference.publish'){if(publish)return publish();return {setup_ready:true,state:'ready'};}
   if(method==='module.read.request')throw new Error('Unexpected graph fallback');
   if(method==='module.read.claim')return {job_id:null};
   throw new Error(method);
  }});
  t.after(()=>service.close());
- return {service,calls,runs,rows,prepare:(options={})=>service.prepare({module_id:'book',purpose:'guidance',guidance_key:'b'.repeat(64),play_language:'en'},undefined,options)};
+ return {service,calls,runs,rows,prepare:(options={},extra={})=>service.prepare({module_id:'book',purpose:'guidance',guidance_key:'b'.repeat(64),play_language:'en',...extra},undefined,options)};
 }
 test('a retryable reference failure retries directly without starting or waiting on a graph reader',async t=>{
  const f=await fixture(t,[{reason:'service_error',retryable:true}]);
@@ -67,3 +68,15 @@ test('only the explicit source-driver visual fallback starts the ordinary graph 
  await assert.rejects(f.prepare(),/Unexpected graph fallback/);
  assert.equal(f.runs.length,1);assert.ok(f.calls.includes('module.read.request'));
 });
+
+test('§14.19.9 live7 cs-1101b: a listed opening the reference does not cover is prepared by reading, never preparation_failed',async t=>{
+ // tongshen became a candidate after the graph's reading; the checked reference covers entry 1 only, so its publication
+ // refuses the opening. That opening goes on to the ordinary reading path (here the fixture's graph reader).
+ const f=await fixture(t,[],{publish:()=>{throw new KernelError({code:'invalid_params',message:'Selected opening has no bound original reference',
+  details:{reason:'opening_not_in_reference',start_scene:'tongshen',entries:['scene-source-entry-1']}});}});
+ await assert.rejects(f.prepare({},{start_scene:'tongshen'}),/Unexpected graph fallback/,'the ordinary reader is asked for it');
+ assert.ok(f.calls.includes('module.read.request'));
+ assert.ok(f.rows.some(row=>row.event==='guidance_fallback'&&row.reason==='opening_not_in_reference'&&row.opening==='tongshen'));
+ assert.ok(!f.rows.some(row=>row.event==='guidance_failed'));
+});
+

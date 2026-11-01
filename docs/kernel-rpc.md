@@ -2338,6 +2338,24 @@ Tests:
   - a chosen opening leaves the library's `opening_choice` and entries untouched;
   - the library left "preparing" with nothing running reports `idle`.
 
+**14.19.9 Every listed opening is playable (2026-11-01, live7 cs-1101b; option A).** An opening the system lists as a
+candidate (`module.status.opening_candidates`) must be one a player can choose and play. In live7 cs-1101b, `tongshen`
+became a candidate after the graph's reading, but the book's checked source reference covered only entry 1. Choosing it
+answered `preparation_failed` ("Selected opening has no bound original reference").
+
+Two changes make the choice playable instead of narrowing the list:
+- **The kernel names the reason.** When `module.reference.publish` refuses a requested opening its reference does not
+  cover, the refusal carries `details.reason: "opening_not_in_reference"`, with `start_scene` and the reference's
+  `entries`. Nothing is written before the refusal.
+- **The host reads it instead.** The guidance preparation treats that refusal as it treats the explicit visual fallback.
+  It records `guidance_fallback` with that reason, then prepares the opening by the page-text path and, failing that, by
+  the ordinary guidance reading of that scene. This applies to every book; no book is special-cased.
+
+The candidate list is unchanged: option B would have hidden openings the book has, so it was not taken. Tests:
+- `tests/extension/source-guidance-recovery.test.mjs` (the live7 case): an uncovered `tongshen` goes to the ordinary
+  reader, and there is no `guidance_failed`.
+- `tests/extension/page-open.test.mjs` ("14.19.9", on the real kernel): the refusal's reason, with nothing written.
+
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
 一条世界线就是战役 sidecar 仓库里的一条分支。玩家在一个战役里同一时刻只玩一条线；可以分叉、回溯、切换、汇流；所有线都留着（证据永不删除）。什么跨线留下、谁记得别的线、汇流时怎么合，由模组图声明、内核确定性地算；守秘人只在胶囊里看到这是第几圈、锚点在哪、留下了什么、谁记得、有哪些回声可投放。世界线操作是世界的改变，所以走 `apply`（法则二），并在那一回合提交之后由内核执行——守秘人仍然只有七个动词。旧树世界线系统的双时态断言、九种记忆状态、跨战役转移、自动合并策略都不回来。

@@ -63,8 +63,11 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  // guidance was bound to the opening a concurrent setup chose); only a campaign's own workspace carries its choice over.
  const requested=string(params.start_scene??''),priorChoice=params._shared_library===true?'':string(row(meta.opening_choice).start_scene??'');
  const chosen=requested?resolveStartScene(graph,requested,contract):entryIds.includes(priorChoice)?priorChoice:entries.length===1?entryIds[0]:null;
- if(requested&&!chosen)fail('Selected opening is not in the bound original context');
- if(chosen&&!entryIds.includes(chosen))fail('Selected opening has no bound original reference');
+ // §14.19.9: an opening the reference does not cover is not a failure of the opening; the host prepares it by reading.
+ const uncovered=(message:string):never=>{throw new RpcError('invalid_params',message,{fix:'prepare this opening by the page or ordinary reading path',
+  details:{reason:'opening_not_in_reference',start_scene:requested||chosen,entries:entryIds}})};
+ if(requested&&!chosen)uncovered('Selected opening is not in the bound original context');
+ if(chosen&&!entryIds.includes(chosen))uncovered('Selected opening has no bound original reference');
  // §14.19.1: the shared library's graph and module.json are never written with a setup's opening -- every table on the
  // book reads them (live7 cs-1101b: a 1101a setup's choice at 03:00:11 pinned the library's entry and opening for the
  // tables that came after). The choice binds this publication's guidance; the campaign pins its own opening at create.

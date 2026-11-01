@@ -1189,6 +1189,12 @@ export class ReadingService implements ReadingBridge {
 					if(failure instanceof SourceReferenceFailure&&failure.visualFallback){
 						this.deps.record({lane:'source-reference',event:'guidance_fallback',module_id:mid,reason:failure.reason});break;
 					}
+					// §14.19.9: every listed opening is playable. One the checked reference does not cover (live7 cs-1101b: tongshen,
+					// a candidate after the graph's reading, against a reference of entry 1 only) is prepared by the page, then the
+					// ordinary reading path, below -- never answered preparation_failed.
+					if(isKernelError(failure)&&failure.details?.reason==='opening_not_in_reference'){
+						this.deps.record({lane:'source-reference',event:'guidance_fallback',module_id:mid,reason:'opening_not_in_reference',opening:params.start_scene??null});break;
+					}
 					const reason=failure instanceof SourceReferenceFailure?failure.reason:'reference_failed';
 					if(failure instanceof SourceReferenceFailure&&failure.retryable&&attempt===0){
 						this.deps.record({lane:'source-reference',event:'guidance_retry',module_id:mid,reason});continue;
