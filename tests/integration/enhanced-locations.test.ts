@@ -450,3 +450,28 @@ test('a spot that names a place added inside the destination moves the party int
     assert.equal(locations(k).position.spot,'by the bed','an ordinary spot is still a spot');
 });
 const array=(value:any)=>Array.isArray(value)?value:[];
+
+test('a place addition that omits within lies in the active scene, and an explicit within or null is kept (§278)',async t=>{
+    const k=await kernel(t);await openTurn(k,'I visit a tea room.');
+    const here=state(k).active_scene;
+    await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'establish',additions:[{name:'Tea room',description:'A small tea room.'},{name:'Free stall',within:null},{name:'Annex',within:here}]}]});
+    const places=locations(k).places,byName=(name:string)=>places.find((record:Row)=>record.name.endsWith(name));
+    assert.equal(byName('Tea room').within,here);assert.equal(byName('Free stall').within,null);assert.equal(byName('Annex').within,here);
+    const receipt=(await k.table('status',{projection:'receipts'})).receipts.find((row:Row)=>row.call_id==='t1-c1'&&row.kind==='place');
+    const defaulted=receipt.adjusted.filter((row:Row)=>row.reason==='within_defaulted');
+    assert.deepEqual(defaulted.map((row:Row)=>[row.field,row.parent]),[['additions[0].within',here]]);
+});
+
+test('defaulting a parent skips an opening reading anchor and a person-named location (§278)',async()=>{
+    const {ModuleGraph,defaultablePlaceParent}=await importSource('kernel-ts/read/module-graph.ts').then(async graph=>({...graph,...await importSource('kernel-ts/mods/locations.ts')}));
+    const node=(id:string,kind:string,properties:Row={})=>({node_id:id,node_kind:kind,name:id,properties});
+    const graph=new ModuleGraph('fixture',{nodes:[node('Book room','scene'),node('Anchor','scene',{is_entrance:true,source_reference_anchor:true}),
+        node('Entrance','scene',{is_entrance:true}),node('Knott','npc'),node('Knott','location'),node('Rector','location')],relations:[],claims:[]},'digest',{});
+    const personal=[...graph.nodes.values()].find(candidate=>candidate.name==='Knott'&&candidate.node_kind==='location');
+    assert.equal(defaultablePlaceParent(graph,graph.scene('Book room')),true);
+    assert.equal(defaultablePlaceParent(graph,graph.scene('Entrance')),true,'an entrance that is not a reading anchor is a place');
+    assert.equal(defaultablePlaceParent(graph,graph.scene('Anchor')),false);
+    assert.equal(defaultablePlaceParent(graph,{node_id:'x',node_kind:'npc',properties:{}} as Row),false);
+    assert.ok(personal);assert.equal(defaultablePlaceParent(graph,personal as Row),false,'a person-named location is not a place');
+    const rector=[...graph.nodes.values()].find(candidate=>candidate.name==='Rector');assert.equal(defaultablePlaceParent(graph,rector as Row),false,'a location is not a scene');
+});

@@ -54423,3 +54423,21 @@ and the earlier turns had passed without it. §129.7 prepared only rows that alr
    holder as `from` (as §227.4 does for reading).
 
 Cases: `tests/extension/equipment-writing-surfaces.test.mjs`, `tests/extension/writing-surfaces-judge.test.mjs`.
+
+## 278. A table-made place lies in the place the party stands in (2026-11-01; amends §250, §242)
+
+Evidence: `kp-translate-only/table-place-parents-1101.md` -- 30 of 42 visited table places had no parent.
+
+1. **Default parent.** An Enhanced Locations place addition (`kind: place`, `establish`, or `move` with `additions`) that
+   omits `within` and creates a new place lies in the table's `active_scene`, as an ordinary `kind: move` mint already
+   does (§264.14). The receipt's `adjusted` records `{field: "additions[i].within", reason: "within_defaulted",
+   parent: <handle>}`, the shape of `unregistered_parent_ignored` and `non_place_parent_ignored`.
+2. **Not defaulted** when the active scene is an opening reading anchor (a `scene` marked `is_entrance` and
+   `source_reference_anchor`, §276.2) or is not a place (`isPlace`: not a scene, or a person-named location); when the
+   name already identifies a registered place (the addition only adds features); and when `within` is given. An explicit
+   `within: null` (or `''`, `'/'`) means a standalone place and is kept; an unresolvable or non-place `within` keeps its
+   existing adjustment and registers standalone.
+3. The check is structural (node kind and marks); no names are matched.
+
+Cases: `tests/integration/enhanced-locations.test.ts` (§278), `tests/integration/location-observations.test.ts` (fixtures
+that want standalone places say `within: null`).
