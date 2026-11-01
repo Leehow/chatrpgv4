@@ -10,8 +10,11 @@ type Row = Record<string, any>;
 
 export type ChapterSource = 'bookmarks' | 'headings' | 'none';
 export interface Chapter { name: string; first: number; last: number }
-/** How the current chapter was found (§276.2); `none`: no evidence locates the party, and the scope is the whole book, unscoped (never kept). */
-export type ChapterResolution = 'scene' | 'pointer' | 'kept' | 'opening' | 'none';
+/**
+ * How the current chapter was found (§276.2); `scene_parent`: a place the table made, by the pages of the nearest place it was
+ * registered inside; `none`: no evidence locates the party, and the scope is the whole book, unscoped (never kept).
+ */
+export type ChapterResolution = 'scene' | 'scene_parent' | 'pointer' | 'kept' | 'opening' | 'none';
 /**
  * The current chapter and (§276.5) the book's resident chapters, read from any chapter: `resident` never holds the current
  * chapter itself.
@@ -108,6 +111,53 @@ export function openingAnchor(entity: Row | undefined): boolean {
 	if (!entity || entity.kind !== 'scene') return false;
 	const marks = entity.properties && typeof entity.properties === 'object' ? entity.properties : {};
 	return marks.is_entrance === true && marks.source_reference_anchor === true;
+}
+
+/** §276.2: a lookup row's book pages, as `table.lookup kind=module` shows them (`original_pages`, 1-based). */
+export const rowPages = (entity: Row | undefined): number[] =>
+	(Array.isArray(entity?.original_pages) ? entity.original_pages : []).filter((page: unknown) => Number.isSafeInteger(page) && Number(page) >= 1).map(Number);
+
+/** §276.2: whether a lookup row is a place the table made (`origin.kind: table`, §187.2.1, §250). */
+export const tableMadePlace = (entity: Row | undefined): boolean => placesParty(entity) && entity?.origin?.kind === 'table';
+
+/**
+ * §276.2: the places a lookup row lies directly inside, by handle, as the graph records them at registration: its `located-in`
+ * relations (a minted scene's `establish.within` or the journey's place, §187.2.1/§264.14; a location Mod place's `within`,
+ * §250), then `part-of` (`parentsOf`, `kernel-ts/read/places.ts`). Self-links are dropped.
+ */
+export function placeParents(entity: Row | undefined): string[] {
+	const relations: Row[] = Array.isArray(entity?.relations) ? entity.relations : [];
+	const out = (kind: string) => relations.filter(rel => rel?.kind === kind && typeof rel.to === 'string' && rel.to.trim()).map(rel => String(rel.to));
+	return [...new Set([...out('located-in'), ...out('part-of')])].filter(handle => handle !== entity?.name);
+}
+
+/** §276.2: how many registration parents up a place the table made looks for book pages. */
+export const SCENE_PARENT_LEVELS = 3;
+
+/**
+ * §276.2 (rule A): for a place the table made with no book pages of its own, the nearest place up its registration parent chain
+ * (`placeParents`, first parent at each level) that has book pages, at most `SCENE_PARENT_LEVELS` levels up: its handle, its
+ * pages and how many levels up it stands. Ancestors that are not places (`placesParty`) or have no pages are passed through.
+ * A self-parent or a cycle ends the walk. Undefined when no ancestor within reach has pages. Purely structural: `lookup`
+ * answers a handle with its `table.lookup kind=module` row.
+ */
+export async function sceneParentPages(entity: Row | undefined, lookup: (handle: string) => Promise<Row | undefined>,
+	levels = SCENE_PARENT_LEVELS): Promise<{ name: string; pages: number[]; level: number } | undefined> {
+	if (!tableMadePlace(entity) || rowPages(entity).length) return undefined;
+	const seen = new Set<string>([entity!.name, entity!.handle, entity!.id].filter((key): key is string => typeof key === 'string'));
+	let current: Row | undefined = entity;
+	for (let level = 1; level <= levels && current; level++) {
+		const handle = placeParents(current).find(parent => !seen.has(parent));
+		if (!handle) return undefined;
+		seen.add(handle);
+		const parent = await lookup(handle);
+		if (!parent) return undefined;
+		for (const key of [parent.name, parent.handle, parent.id]) if (typeof key === 'string') seen.add(key);
+		const pages = placesParty(parent) ? rowPages(parent) : [];
+		if (pages.length) return { name: handle, pages, level };
+		current = parent;
+	}
+	return undefined;
 }
 
 /**
