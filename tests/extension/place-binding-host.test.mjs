@@ -56,3 +56,45 @@ test('a model-origin committed mint starts the book reference and writes the pri
   assert.deepEqual(bindings[0].pages, [2]);
   assert.equal(bindings[0].excerpt, PAGES[1]);
 });
+
+/** One Pi turn on the real kernel whose model replies are given; returns the table and the reference calls. */
+async function placeTurn(t, replies, {reference, env = {}} = {}) {
+  const text = 'A bare bulb lights the narrow room. Damp paper and cold air meet you; a window rattles above a wooden cabinet. Its half-open door invites a closer look.';
+  const requested = [];
+  const table = await openTable({realKernel: true, seedCampaign: false, campaign: CAMPAIGN,
+    env: {PI_COC_JEV_PRESELECT: '0', PI_COC_SCENE_PLACEMENT: 'off', ...env},
+    prepareWorkspace: async home => {
+      const context = await api.createKernelContext({workspace: home, content: join(ROOT, 'content'), seed: 'binding-host', locks: api.nativeAdvisoryLocks()});
+      const runtime = api.createKernelRuntime(context);
+      try {
+        await buildRosterBook((method, params) => runtime.handlers[method](params), home, {open: true});
+        await runtime.handlers['table.narrate']({campaign: CAMPAIGN, call_id: 't0-c1', text: 'The captain hands you the orders.'});
+      } finally {await runtime.close();}
+    },
+    laneResponses: {}, responses: replies(text)});
+  t.after(() => table.dispose());
+  table.emit('coc:reading-bridge', {ensure: async () => ({state: 'ready'}), reading: () => false,
+    reference: async (moduleId, params) => {requested.push({moduleId, params});return reference(moduleId, params);}});
+  return {table, requested};
+}
+const excerpts = {source_answer: {status: 'excerpts', authority: 'original-source-excerpts', excerpts: [{page: 2, text: PAGES[1]}]}};
+const toolReply = (name, params) => fauxAssistantMessage([fauxToolCall(name, params)], {stopReason: 'toolUse'});
+
+test('a native place move that registers a place starts the book binding without blocking the turn', async t => {
+  let release;
+  const gate = new Promise(done => {release = done;});
+  const {table, requested} = await placeTurn(t, text => [
+    toolReply('place', {op: 'submit', change: {action: 'move', to: 'Cottage', via: 'Across the farm lane.', travel_band: 'adjacent',
+      additions: [{name: 'Cottage', within: null, description: 'A cottage by the northern pond.'}]}}),
+    toolReply('narrate', {text})], {reference: async () => {await gate;return excerpts;}});
+  await table.session.prompt('I go to the cottage by the northern pond.');
+  await waitForIdle(table.session);
+  await waitFor(() => requested.length === 1, {label: 'the registration asks the book'});
+  assert.equal(table.telemetry().some(row => row.lane === 'place-binding' && row.outcome === 'bound'), false, 'the turn committed while the binding was still pending');
+  assert.equal(requested[0].params.focus, 'Cottage');
+  release();
+  const row = await waitFor(() => table.telemetry().find(row => row.lane === 'place-binding' && row.outcome === 'bound'), {label: 'registered place receives its book binding'});
+  assert.deepEqual(row.pages, [2]);
+  const stored = JSON.parse(await readFile(join(table.workspace, '.coc/campaigns', CAMPAIGN, 'place-bindings.json'), 'utf8'));
+  assert.equal(Object.values(stored.places).length, 1);
+});
