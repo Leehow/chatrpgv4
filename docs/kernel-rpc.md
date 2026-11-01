@@ -54063,7 +54063,8 @@ characters and their statistics. Which chapters these are is a question of what 
 document (family `resident-chapters` v1): one Noul per chapter from its heading, its pages and the first 400 characters
 printed on its first page; at 0.5 or more the chapter is resident. The answer is kept by file hash in
 `<home>/.coc/chapter-scope/resident-<sha>.json`; an ask Jev could not answer keeps nothing resident and is asked again in the
-next session. A book with no chapters has none. Telemetry: `lane: reading, event: resident_chapters` with each chapter's Noul.
+next session, not at the next read of this one (audit 1101: a `service_error` re-asked the whole book at every book read, each
+read waiting on the ask). A book with no chapters has none. Telemetry: `lane: reading, event: resident_chapters` with each chapter's Noul.
 
 Every cut of §276.3 reads the current chapter and the resident chapters (`chapter.resident` on the answer). The text search
 searches one span as itself and several over their hull, cutting the hits; the contents list the rows of every span; the

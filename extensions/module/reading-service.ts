@@ -628,8 +628,9 @@ export class ReadingService implements ReadingBridge {
 				nouls: book.chapters.map((chapter, index) => [chapter.name, asked.nouls[index]]),
 				story_pages: book.chapters.flatMap((chapter, index) => asked.storyPages[index].length ? [[chapter.name, asked.storyPages[index]]] : []),
 				requests: asked.requests, ...(asked.failed ? { failed: asked.failed } : {}), usage: asked.usage });
-			// A verdict with any question unanswered sets no resident chapter at all (§276.5), and is asked again next session.
-			if (asked.failed) { this.residents.delete(sha); return []; }
+			// A verdict with any question unanswered sets no resident chapter at all (§276.5), and is asked again next session:
+			// not at the next read of this one (audit 1101: a Jev service_error re-asked the whole book at every book read).
+			if (asked.failed) return [];
 			await mkdir(dirname(file), { recursive: true }).then(() => writeFile(file, JSON.stringify({ version: RESIDENT_VERSION, family: RESIDENT_FAMILY,
 				question: RESIDENT_QUESTION_DIGEST, resident }) + "\n")).catch(() => undefined);
 			return resident;

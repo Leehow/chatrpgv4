@@ -286,7 +286,13 @@ test('§276.5: a Jev that cannot answer leaves no resident chapter, and the next
  try{
   const {reading}=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
   assert.equal((await reading.chapterScope('blood-road','c1')).resident,undefined);
-  assert.ok(calls>=1);reading.dispose();
+  const asked=calls;assert.ok(asked>=1);
+  // audit 1101: the next read of the same session does not ask the book again; only the next session does.
+  assert.equal((await reading.chapterScope('blood-road','c1')).resident,undefined);
+  assert.equal(calls,asked,'not asked again in this session');reading.dispose();
+  const next=await service(root,{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  await next.reading.chapterScope('blood-road','c1');
+  assert.ok(calls>asked,'the next session asks again');next.reading.dispose();
  }finally{globalThis.fetch=oldFetch;}
 }));
 
