@@ -103,7 +103,7 @@ import { type CommitPayload, runVerifierLane } from "./verifier.ts";
 import { disableStepThinking, isFirstStepOfTurn, STEP_READS } from "./first-step-thinking.ts";
 import { currentPromptHead } from "./prompt-checkpoint.ts";
 import { deliveryProse, isSpeechOnlyDraft, learnSpeechMarks, proseCharCount, sayableName, type SpeechMarks, surroundingSentences, unwrappedPassages, unwrappedQuotes, wrapPassages, wrappedOrdinals } from "./unwrapped-speech.ts";
-import { createDecisionAdapter, JEV_TURN_RETRY, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
+import { createDecisionAdapter, JEV_TURN_RETRY, jevFailureTelemetry, setJevAttemptSink, type JevAttemptSink } from "../../runtime/jev/decision-adapter.ts";
 import { DEAL_MARKS_DECISION_FAMILY, decideDeals, type DealJobInput } from "../../runtime/jev/deal-marks.ts";
 import { FORCED_CHOICE_CUE_MIN, FORCED_CHOICE_OUTCOME_MAX, type ForcedChoiceCueReview, type ForcedPlayerChoice } from "../../runtime/jev/forced-resolution.ts";
 import { BAND_TABLES, askBand, bandNeeds, dossierOf, pinWhy, recoveryNote, weaponProfilesOf, type BandNeeds, type ShadowQuestion } from "./band-recovery.ts";
@@ -8013,9 +8013,22 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
 		await closing?.close();
 	}
 
+	/**
+	 * §122 per-attempt rows: every Jev attempt in this process, from any family's adapter, lands in the campaign telemetry of
+	 * the lease's campaign, else this session's table. Written straight to the file, not as session entries (one line per
+	 * attempt). An attempt with neither campaign goes to `<home>/.coc/jev-attempts.jsonl`.
+	 */
+	const jevAttemptSink: JevAttemptSink = (row, campaign) => {
+		const cwd = (() => { try { return sessionCtx?.cwd; } catch { return undefined; } })();
+		if (!cwd) return;
+		const own = table && (!campaign || campaign === table.campaign) ? table.telemetryPath : undefined;
+		const path = own ?? (campaign ? join(cocHome(cwd), ".coc", "campaigns", campaign, "telemetry.jsonl") : join(cocHome(cwd), ".coc", "jev-attempts.jsonl"));
+		void appendJsonl(path, { at: new Date().toISOString(), ...(own && row.turn === undefined && table ? { turn: table.turn } : {}), ...row });
+	};
 	pi.on("session_start", async (_event, ctx) => {
 		await shutdownKernel();
 		sessionCtx = ctx;
+		setJevAttemptSink(jevAttemptSink);
 		// A watchdog kill cannot emit agent_settled in the dead process. The
 		// Electron host arms this one-process handoff before abort escalation;
 		// consume it exactly once so a retained pending turn is stranded before
@@ -8448,6 +8461,7 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
         if(table)quotationQueues.get(table)?.close();
 		await shutdownKernel();
 		sessionCtx = undefined;
+		setJevAttemptSink(undefined, jevAttemptSink);
 		watchdogRecoveryFile = undefined;
 		watchdogTurnBinding = undefined;
 	});

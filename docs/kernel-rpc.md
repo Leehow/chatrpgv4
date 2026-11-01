@@ -20362,6 +20362,25 @@ Every Jev attempt that fails now writes one telemetry row `{lane: "jev", event: 
 
 `DecisionResult.failure` gains an optional `status: number | string`: the last attempt's HTTP status when a response was ever received, or its network/timeout code otherwise (absent when the batch never dispatched at all, e.g. `disabled`/`unconfigured`/`packing_limit`/`schema_error` before transport). Every existing `jev_service_error`-shaped row -- the route/compile/reask telemetry, the consequence shadow route, and the admission fast path's `jev_fallback` -- carries this same value forward as `jev_status`, so a reason string that only ever said "the typed family failed" now also says with what status. This is telemetry only: no domain policy, threshold, or admission verdict reads `status`, and a batch's `code`/`status`/`reason` classification is unchanged by its presence.
 
+#### Jev per-attempt rows (2026-11-01)
+
+The failure rows above count failures only, so no family's success latency (p50/p95/p99) or failure rate could be computed,
+and most families' adapters pass no trace at all, so their failures reached no telemetry either. Every attempt -- success or
+failure, from any family's adapter -- now writes one row `{lane: "jev", event: "attempt", family, model, attempt, retry,
+ms, outcome, status?, hedged?, turn?}`: `attempt` is 1-based, `retry` is `attempt > 1`, `ms` is that attempt's time from the
+request to the response headers (or to the error), `outcome` is the attempt's closed class -- `ok` (a 2xx), `429`, `529`,
+`network_error`, `timeout`, `cancelled` (the caller's lease ended it) or `other` (any other HTTP status) -- and `status` the
+HTTP status when a response arrived. `hedged` marks an attempt that sent a §128.3.1 hedge; `turn` is the lease's origin turn,
+else the table's turn. Numbers and closed codes only: no state, question, answer, header, body or key.
+
+The adapter does not take a sink per call: it hands each row to the process's attempt sink (`setJevAttemptSink`, held on
+`globalThis` so every bundle's adapters reach it) with the campaign of the lease's scope. The kernel extension registers the
+sink at `session_start` (cleared at `session_shutdown`, only by its owner) and appends each row straight to the campaign's
+`telemetry.jsonl` -- the lease's campaign, else the session's table -- not as a session entry; a row with neither goes to
+`<home>/.coc/jev-attempts.jsonl`. A process with no sink (offline tests, experiments, any launcher that does not load the kernel extension) writes
+nothing; a sink that throws changes no decision. The failure rows above are unchanged and still written by the callers that
+pass `jevFailureTelemetry`. Volume is one short line per attempt.
+
 S0 is a bounded public-SDK seam probe, not S2's production TaskRuntime. The planner is a private lane of the configured Keeper role and receives exactly one private `submit_plan_packet` protocol tool for the strict semantic submission. That tool is not added to the normal global seven gameplay verbs, does not write player prose, and is not Workpad. A simple plan may instead return a direct draft through the private role response. The writer uses the existing `narrate`/`ask` role tools; there is no private `submit_delivery_draft` wrapper. Existing `message_end`, delivery-termination, and split-order guards remain authoritative. The writer receives only validated real observations. The host retains the complete private role transcript, typed artifacts, provider usage/accounting, read-dispatch trace, cancellation, audit evidence, and delivery result under existing privacy rules.
 
 Before S0 can make a real guard claim, it extracts only the smallest shared read-dispatch seam from the incumbent path. That seam may share the existing schema validation, `tool_call` preflight, `runTool`, and `tool_result` failure accounting needed to route a guarded read. Its S0 capability set is limited to `look`, `recall`, and the explicitly classified read-only variants of `lookup`; a generic `lookup` label alone is insufficient. It has no mutation, preparation, publication, delivery, or raw `bridgeCall` bypass. The full CanonicalOperationDispatcher, all mutation families, and their parity/retirement work remain T05 and later. Passing S0 therefore proves the bounded real read path only, never full dispatcher or mutation conformance.

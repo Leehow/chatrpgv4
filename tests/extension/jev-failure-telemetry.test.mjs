@@ -12,7 +12,7 @@
  */
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { createDecisionAdapter, jevFailureTelemetry } from "../../runtime/jev/decision-adapter.ts";
+import { createDecisionAdapter, jevFailureTelemetry, setJevAttemptSink } from "../../runtime/jev/decision-adapter.ts";
 import { JEV_MODEL } from "../../runtime/jev/question-packing.ts";
 import { TaskLease } from "../../runtime/jev/task-context.ts";
 
@@ -195,4 +195,59 @@ test("end-to-end: a successful batch writes no attempt_failed or batch_failed ro
 	const result = await adapter.decide(batch({ state: { player: "must-not-enter-telemetry either" } }), lease());
 	assert.equal(result.status, "complete");
 	assert.deepEqual(rows, [], "a clean round trip writes nothing");
+});
+
+// ---- §122 per-attempt rows (2026-11-01): every attempt, success or failure, reaches the process's attempt sink ----
+
+/** Rows the process sink received during `run`, with their campaign. */
+async function sunk(run) {
+	const rows = [], sink = (row, campaign) => rows.push({ row, campaign });
+	setJevAttemptSink(sink);
+	try { await run(); } finally { setJevAttemptSink(undefined, sink); }
+	return rows;
+}
+
+test("§122 attempt rows: a 429 then a success each write one row, with family, model, attempt, class, status, latency and retry", async () => {
+	let calls = 0;
+	const adapter = createDecisionAdapter({ apiKey: "secret-key-must-not-leak",
+		retryPolicies: { routing: { maxRetries: 1, backoffInitialMs: 0, backoffMaxMs: 0 } },
+		fetcher: async () => ++calls === 1 ? nonOkResponse(429, { "retry-after": "1" }) : response(answerBody()),
+		sleep: async () => undefined });
+	const rows = await sunk(async () => assert.equal((await adapter.decide(batch({ state: { player: "secret player words" } }), lease())).status, "complete"));
+	assert.deepEqual(rows.map(({ row, campaign }) => ({ ...row, ms: typeof row.ms, campaign })), [
+		{ lane: "jev", event: "attempt", family: "routing", model: JEV_MODEL, attempt: 1, retry: false, ms: "number", outcome: "429", status: 429, campaign: "campaign-a" },
+		{ lane: "jev", event: "attempt", family: "routing", model: JEV_MODEL, attempt: 2, retry: true, ms: "number", outcome: "ok", status: 200, campaign: "campaign-a" }]);
+	const text = JSON.stringify(rows);
+	for (const leaked of ["secret-key-must-not-leak", "secret player words", "archive", "route", "Choose"]) assert.equal(text.includes(leaked), false, leaked);
+});
+
+test("§122 attempt rows: network errors, timeouts, 529 and other statuses are classed by code; the sink is process-wide", async () => {
+	const classes = [];
+	for (const [fetcher, policy] of [
+		[async () => { throw new TypeError("offline"); }, { maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0 }],
+		[async (_url, init) => new Promise((_resolve, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true })),
+			{ maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0, attemptTimeoutMs: 10 }],
+		[async () => nonOkResponse(529), { maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0 }],
+		[async () => nonOkResponse(500), { maxRetries: 0, backoffInitialMs: 0, backoffMaxMs: 0 }],
+	]) {
+		// An adapter built with no trace of its own still reaches the sink: families that log no failures are covered.
+		const adapter = createDecisionAdapter({ apiKey: "secret", retryPolicies: { routing: policy }, fetcher });
+		const rows = await sunk(() => adapter.decide(batch(), lease()));
+		classes.push(rows.map(({ row }) => [row.outcome, row.status ?? null, row.retry]));
+	}
+	assert.deepEqual(classes, [[["network_error", null, false]], [["timeout", null, false]], [["529", 529, false]], [["other", 500, false]]]);
+});
+
+test("§122 attempt rows: a sink cleared by its owner stops; another owner cannot clear it; no sink is no error", async () => {
+	const adapter = () => createDecisionAdapter({ apiKey: "secret", fetcher: async () => response(answerBody()) });
+	const rows = [], sink = row => rows.push(row), other = () => undefined;
+	setJevAttemptSink(sink);
+	setJevAttemptSink(undefined, other);
+	await adapter().decide(batch(), lease());
+	setJevAttemptSink(undefined, sink);
+	await adapter().decide(batch(), lease());
+	assert.equal(rows.length, 1);
+	setJevAttemptSink(() => { throw new Error("a broken sink"); });
+	try { assert.equal((await adapter().decide(batch(), lease())).status, "complete", "a sink that throws changes nothing"); }
+	finally { setJevAttemptSink(undefined); }
 });

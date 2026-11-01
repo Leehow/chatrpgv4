@@ -74,6 +74,43 @@ export function jevFailureTelemetry(record: (row: Record<string, unknown>) => vo
     }
   };
 }
+/**
+ * Contract §122 "per-attempt latency rows" (2026-11-01): one compact row per attempt, success or failure, so per-family
+ * latency (p50/p95/p99 of successful attempts) and failure rates can be computed. Numbers and closed codes only: never the
+ * state, questions, answers, headers or key. `outcome` is the attempt's class: `ok` (a 2xx), `429`, `529`, `network_error`,
+ * `timeout`, `cancelled` (the caller's lease ended the attempt) or `other` (any other HTTP status, kept in `status`).
+ */
+export interface JevAttemptRow {
+  lane: 'jev'; event: 'attempt'; family: string; model: string; attempt: number; retry: boolean; ms: number;
+  outcome: 'ok' | '429' | '529' | 'network_error' | 'timeout' | 'cancelled' | 'other'; status?: number; hedged?: true; turn?: number;
+}
+/** Receives every attempt row with the campaign of the lease's scope, when it names one. */
+export type JevAttemptSink = (row: JevAttemptRow, campaign: string | undefined) => void;
+// On globalThis: one process loads this module once per bundle, and every bundle's adapters must reach the host's sink.
+const ATTEMPT_SINK = Symbol.for('pi-coc.jev-attempt-sink.v1');
+type SinkScope = { [ATTEMPT_SINK]?: JevAttemptSink };
+/**
+ * The process's attempt sink (the play host registers one writing campaign telemetry). Passing `undefined` with `owner`
+ * clears it only while `owner` is still the registered sink, so a disposed session cannot clear its successor's.
+ */
+export function setJevAttemptSink(sink: JevAttemptSink | undefined, owner?: JevAttemptSink): void {
+  const scope = globalThis as SinkScope;
+  if (sink) scope[ATTEMPT_SINK] = sink;
+  else if (!owner || scope[ATTEMPT_SINK] === owner) delete scope[ATTEMPT_SINK];
+}
+/** The row for one attempt: an HTTP status, or the code of an attempt that produced none. */
+export function jevAttemptRow(input: { family: string; model: string; attempt: number; ms: number; status?: number;
+    code?: 'network_error' | 'timeout' | 'cancelled'; hedged?: boolean; turn?: number }): JevAttemptRow {
+  const status = typeof input.status === 'number' ? input.status : undefined;
+  const outcome: JevAttemptRow['outcome'] = input.code ?? (status === undefined ? 'other' : status >= 200 && status < 300 ? 'ok'
+    : status === 429 ? '429' : status === 529 ? '529' : 'other');
+  return { lane: 'jev', event: 'attempt', family: input.family, model: input.model, attempt: input.attempt, retry: input.attempt > 1,
+    ms: Math.max(0, Math.round(input.ms)), outcome, ...(status !== undefined ? { status } : {}), ...(input.hedged ? { hedged: true as const } : {}),
+    ...(Number.isSafeInteger(input.turn) ? { turn: input.turn } : {}) };
+}
+function emitAttempt(row: JevAttemptRow, campaign: string | undefined): void {
+  try { (globalThis as SinkScope)[ATTEMPT_SINK]?.(row, campaign); } catch { /* telemetry cannot affect a decision */ }
+}
 export interface DecisionAdapterOptions {
   env?: Readonly<NodeJS.ProcessEnv>;
   /** Explicit injection for isolated transport tests; production callers pass their captured env. */
@@ -382,6 +419,11 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
         return unavailable(batch, code, retryable, now() - began, attempts + hedges, lastStatus);
       };
       let attempted = 0;
+      const scopeCampaign = typeof lease.context.scope?.campaign === 'string' && lease.context.scope.campaign ? lease.context.scope.campaign : undefined;
+      const turn = lease.context.origin?.turn;
+      /** §122: the attempt's row; `hedgesBefore` tells whether this attempt sent a hedge. */
+      const attemptRow = (attempt: number, began: number, hedgesBefore: number, result: { status?: number; code?: 'network_error' | 'timeout' | 'cancelled' }) =>
+        emitAttempt(jevAttemptRow({ family: batch.family, model: batch.model, attempt, ms: now() - began, ...result, hedged: hedges > hedgesBefore, turn }), scopeCampaign);
       try {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
           try { lease.assertActive(); }
@@ -389,7 +431,7 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
           const remaining = lease.context.budget.deadlineAt - now();
           const attemptTimeout = Math.max(1, Math.min(remaining, retry.attemptTimeoutMs ?? remaining));
           const attemptSignal = AbortSignal.any([lease.signal, AbortSignal.timeout(attemptTimeout)]);
-          const attemptBegan = now();
+          const attemptBegan = now(), hedgesBefore = hedges;
           let response: Response;
           try {
             attempted = attempt;
@@ -402,13 +444,18 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
               trace({ kind: 'retry', batchId: batch.id, attempt, delayMs: retry.hedgeAfterMs!, reason: 'hedge' });
             });
           } catch (error) {
-            if (lease.signal.aborted) return settleUnknown(now() >= lease.context.budget.deadlineAt ? 'timeout' : 'cancelled', false, attempt);
+            if (lease.signal.aborted) {
+              const ended = now() >= lease.context.budget.deadlineAt ? 'timeout' : 'cancelled';
+              attemptRow(attempt, attemptBegan, hedgesBefore, { code: ended });
+              return settleUnknown(ended, false, attempt);
+            }
             const timedOut = attemptSignal.aborted;
             const networkError = error instanceof TypeError;
             // SL-84: a completed round trip never happened; the attempt row names the failure by code, not status.
             const attemptCode: 'timeout' | 'network_error' = timedOut ? 'timeout' : 'network_error';
             lastStatus = attemptCode;
             trace({ kind: 'attempt', batchId: batch.id, attempt, family: batch.family, code: attemptCode, ms: now() - attemptBegan });
+            attemptRow(attempt, attemptBegan, hedgesBefore, { code: attemptCode });
             const allowed = timedOut ? retry.retryTimeout === true : networkError && retry.retryNetwork === true;
             if (!allowed || attempt >= maxAttempts) return settleUnknown(timedOut ? 'timeout' : 'service_error', allowed, attempt);
             const delay = Math.min(retry.backoffMaxMs, retry.backoffInitialMs * 2 ** (attempt - 1));
@@ -423,6 +470,7 @@ export function createDecisionAdapter(options: DecisionAdapterOptions = {}): Dec
           const retryAfterHeader = response.status === 429 ? headers(response, 'retry-after') : null;
           trace({ kind: 'attempt', batchId: batch.id, attempt, family: batch.family, status: response.status, ms: now() - attemptBegan,
             ...(retryAfterHeader ? { retryAfter: retryAfterHeader } : {}) });
+          attemptRow(attempt, attemptBegan, hedgesBefore, { status: response.status });
           if (response.status === 429 || response.status === 529 || response.status === 503) {
             await cancelResponseBody(response);
             const failureCode=response.status===503?'service_error':'rate_limited';
