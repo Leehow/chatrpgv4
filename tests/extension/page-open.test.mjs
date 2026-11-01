@@ -222,3 +222,15 @@ test('§14.19.9: a publication for an opening the reference does not cover names
   const meta=JSON.parse(await readFile(join(f.modules.source.store.moduleDir(f.mid),'module.json'),'utf8'));
   assert.equal(meta.source_reference,undefined,'nothing was written before the refusal');
 });
+
+test('§14.19.8: a reference whose only entry is the book\'s is the book\'s opening, applied in the library as before',async t=>{
+  // Full suite 190a8913f: the roster fixtures publish a one-entry reference to the library with no start_scene and create
+  // the campaign without one; holding back that book-level entry left three start scenes and refused every campaign.
+  const f=await bound(t),host=runtime(ANSWERS);runtime.sha=f.sha;
+  const result=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});
+  const published=await f.modules.handlers['module.reference.publish']({module_id:f.mid,work_dir:result.workDir,guidance_key:'9'.repeat(64),play_language:'en'});
+  assert.equal(published.setup_ready,true);
+  const meta=JSON.parse(await readFile(join(f.modules.source.store.moduleDir(f.mid),'module.json'),'utf8'));
+  assert.ok(meta.opening_choice?.start_scene,'the book\'s sole entry is recorded');
+  assert.deepEqual((await f.modules.source.store.readGraph(f.mid)).entry_scene_ids,[meta.opening_choice.start_scene]);
+});

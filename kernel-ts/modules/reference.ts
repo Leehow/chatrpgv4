@@ -71,7 +71,9 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  // §14.19.1: the shared library's graph and module.json are never written with a setup's opening -- every table on the
  // book reads them (live7 cs-1101b: a 1101a setup's choice at 03:00:11 pinned the library's entry and opening for the
  // tables that came after). The choice binds this publication's guidance; the campaign pins its own opening at create.
- const shared=params._shared_library===true;
+ // A reference whose only entry is the book's (no start_scene asked) is the book's own opening, not a table's: it is
+ // applied as before, so a campaign created without start_scene opens on it.
+ const shared=params._shared_library===true&&!!requested;
  if(chosen&&!shared)applyOpeningChoice(graph,chosen,contract);
  const packetFile=join('source-references',String(receipt.packet_sha256),'packet.json');await writeJsonAtomic(join(root,packetFile),packet);
  // The stored representation is canonical JSON, so its persisted digest is measured after writing.

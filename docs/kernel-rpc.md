@@ -2319,7 +2319,10 @@ Rules:
 1. **A shared-library publication keeps no table's opening.** A `module.reference.publish` that no campaign asked for
    still binds its guidance to the requested opening. It no longer applies the choice to the shared graph's entry, and no
    longer writes the library's `opening_choice`. A campaign pins its own opening at `campaign.create`, in its own
-   workspace.
+   workspace. The rule covers a `start_scene` a setup asked for, and nothing else. A reference whose only entry is the
+   book's own, published with no `start_scene` asked, is the book's opening, and the library applies it as before. A
+   campaign created without `start_scene` opens on it. Full suite 190a8913f: holding that entry back left the roster
+   fixtures' book with three start scenes, so every campaign it created was refused.
 2. **`complete` waits a bounded allowance.** It waits on the opening's reading for `PI_COC_COMPLETE_WAIT_MS` (default
    20,000 ms), and the reading goes on behind it. Then the kernel is asked, and it answers `campaign_not_ready /
    opening_preparing`: the card is kept, and the host completes when the opening is ready.
