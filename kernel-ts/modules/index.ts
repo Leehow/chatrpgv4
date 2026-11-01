@@ -82,7 +82,10 @@ function handlersFor(store: ModuleStore, reading: Reading): HandlerGroup {
                     // §182.1: how many bookmark entries binding kept, or null when none was ever recorded (the host backfills).
                     outline: Array.isArray(row(meta.source_document).outline) ? row(meta.source_document).outline.length : null,
                     opening_ready: truth(meta.opening_ready), opening: meta.opening ?? {},
-                    reading: { ...row(meta.reading), opening_ready: truth(meta.opening_ready), queued: queue.filter(job => job.state === 'queued').length, active: queue.find(job => job.state === 'running')?.job_id ?? null },
+                    reading: { ...row(meta.reading), opening_ready: truth(meta.opening_ready), queued: queue.filter(job => job.state === 'queued').length, active: queue.find(job => job.state === 'running')?.job_id ?? null,
+                        // §14.19.8: "preparing" with no job queued or running is a state nothing will move on its own (live7
+                        // cs-1101b's book-3 library since 1101a); a targeted preparation with retry reads again from it.
+                        idle: row(meta.reading).state === 'preparing' && !truth(meta.opening_ready) && !queue.some(job => job.state === 'queued' || job.state === 'running') },
                     opening_candidates: await store.candidates(await store.readGraph(id) || {}),
                 };
             }

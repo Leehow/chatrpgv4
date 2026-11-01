@@ -194,3 +194,22 @@ test('live7 du-1101a: a setup that names no opening is not bound to the opening 
   assert.equal(b.setup_ready,false,'the second setup is asked for its own opening, not handed the first one\'s');
   assert.equal(b.guidance,undefined);
 });
+
+test('live7 cs-1101b: a setup\'s chosen opening is not written into the shared library, and a library left "preparing" with nothing running reports idle',async t=>{
+  const two={...ANSWERS,locate:{openings:[{name:'Prologue',pages:[16,17]},{name:'Ras the owner',pages:[20]}],setup_pages:[6]}};
+  const f=await bound(t),host=runtime(two);runtime.sha=f.sha;
+  const asked=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',model:{id:'fixture/model'}});
+  const question=await f.modules.handlers['module.reference.publish']({module_id:f.mid,work_dir:asked.workDir,guidance_key:'d'.repeat(64),play_language:'en'});
+  const scene=question.opening.choice.candidates[1].scene;
+  const chose=await runPageOpen({runtime:host,source:{pdf:f.pdf,file_sha256:f.sha,page_count:PAGES},moduleId:f.mid,language:'en',focus:scene,model:{id:'fixture/model'}});
+  const guided=await f.modules.handlers['module.reference.publish']({module_id:f.mid,work_dir:chose.workDir,guidance_key:'e'.repeat(64),play_language:'en',start_scene:scene});
+  assert.equal(guided.setup_ready,true,'the setup that chose has its guide');
+  const meta=JSON.parse(await readFile(join(f.modules.source.store.moduleDir(f.mid),'module.json'),'utf8'));
+  assert.equal(meta.opening_choice,undefined,'the library keeps no table\'s opening (§14.19.1)');
+  const graph=await f.modules.source.store.readGraph(f.mid);
+  assert.ok(graph.entry_scene_ids.length>1||graph.nodes.filter(node=>node.properties?.is_entrance).length>1,'both openings stay openings of the shared book');
+  // The state live7's book-3 library was left in: "preparing", no opening, no job queued or running.
+  assert.equal(meta.reading.state,'preparing');
+  const status=await f.modules.handlers['module.status']({module_id:f.mid});
+  assert.equal(status.reading.idle,true,'nothing will move it: detectable');
+});

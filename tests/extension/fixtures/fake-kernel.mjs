@@ -810,6 +810,8 @@ function handle(method, params) {
 					playability: { status: "playable", finding_counts: {} },
 					sections: [],
                     opening_candidates: openingRows(),
+					// FAKE_KERNEL_MODULE.reading: the reading report a module.status carries (§14.19.8 `idle`).
+					...(MODULE.reading ? { reading: MODULE.reading } : {}),
 				},
 			};
 		}

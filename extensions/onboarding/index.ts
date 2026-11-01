@@ -180,6 +180,13 @@ function wantsCampaign(method: string): boolean {
 		(method.startsWith("module.") && !["module.source.bind", "module.register", "module.list"].includes(method));
 }
 
+/** §14.19.8: how long `complete` waits on the opening's reading before the kernel is asked (`PI_COC_COMPLETE_WAIT_MS`). */
+const COMPLETE_OPENING_WAIT_MS = 20_000;
+function completeOpeningWaitMs(): number {
+	const configured = Number(process.env.PI_COC_COMPLETE_WAIT_MS);
+	return Number.isFinite(configured) && configured >= 0 ? configured : COMPLETE_OPENING_WAIT_MS;
+}
+
 export default function (pi: ExtensionAPI) {
 	// In the play process this extension registers nothing (contract §14.4).
 	if (cocMode() !== "setup") return;
@@ -794,7 +801,23 @@ export default function (pi: ExtensionAPI) {
                 if(op.method==='setup.draft'||op.method==='setup.confirm')filled.params=await bindInputParams(filled.params);
 				if(op.method==='setup.complete'&&sourceKind!=='starter'&&reading){
 					const moduleId=asString(context.module_id),scene=campaignOpening??asString(context.start_scene)??characterGuidance?.scene;
-					if(moduleId&&scene)await reading.prepare({module_id:moduleId,start_scene:scene,targeted:true,campaign:context.campaign,...(args.retry===true?{retry:true}:{})},signal);
+					// §14.19.8: complete waits on the opening's reading for a bounded allowance, then asks the kernel, which answers
+					// `opening_preparing` (the card is kept, the host completes when the opening is ready). Live7 cs-1101b: each call
+					// waited the full 120 s foreground wait and answered "call prepare-module", a booked step; the turn ran out
+					// in silence. A reading that fails is a structured refusal naming this step.
+					if(moduleId&&scene){
+						// A reading left "preparing" with nothing queued or running is read again, not waited on (§14.19.8).
+						let retry=args.retry===true;
+						if(!retry)try{retry=asRecord(asRecord(await current.call('module.status',{module_id:moduleId,...(context.campaign?{campaign:context.campaign}:{})})).reading).idle===true;}catch{/* the reading decides */}
+						try{await reading.prepare({module_id:moduleId,start_scene:scene,targeted:true,campaign:context.campaign,...(retry?{retry:true}:{})},signal,{allowanceMs:completeOpeningWaitMs()});}
+						catch(error){
+							if(signal?.aborted)throw error;
+							return {ok:false,step:step.id,failed_on:'setup.complete',code:'campaign_not_ready',
+								message:`the opening scene could not be prepared yet: ${errorText(error)}`,
+								fix:`the confirmed investigator is kept; end this reply, or call ${step.id} again with retry: true on the player's next message`,
+								details:{reason:'opening_preparing',start_scene:scene,reading:errorCode(error)??'reading_failed'},results};
+						}
+					}
 				}
 				const result =
 					op.method === "module.prepare"

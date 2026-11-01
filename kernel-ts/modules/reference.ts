@@ -65,7 +65,11 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  const chosen=requested?resolveStartScene(graph,requested,contract):entryIds.includes(priorChoice)?priorChoice:entries.length===1?entryIds[0]:null;
  if(requested&&!chosen)fail('Selected opening is not in the bound original context');
  if(chosen&&!entryIds.includes(chosen))fail('Selected opening has no bound original reference');
- if(chosen)applyOpeningChoice(graph,chosen,contract);
+ // §14.19.1: the shared library's graph and module.json are never written with a setup's opening -- every table on the
+ // book reads them (live7 cs-1101b: a 1101a setup's choice at 03:00:11 pinned the library's entry and opening for the
+ // tables that came after). The choice binds this publication's guidance; the campaign pins its own opening at create.
+ const shared=params._shared_library===true;
+ if(chosen&&!shared)applyOpeningChoice(graph,chosen,contract);
  const packetFile=join('source-references',String(receipt.packet_sha256),'packet.json');await writeJsonAtomic(join(root,packetFile),packet);
  // The stored representation is canonical JSON, so its persisted digest is measured after writing.
  const packetDigest=await sha256File(join(root,packetFile));
@@ -73,7 +77,7 @@ export async function publishReferenceContext(store:ModuleStore,meta:Row,params:
  meta.reading??={};meta.reading.materials=array(meta.reading.materials).filter(item=>item.key!=='source-reference:'+meta.file_sha256);
  meta.reading.materials.push({key:'source-reference:'+meta.file_sha256,purpose:'reference-context',reference_only:true,node_ids:entryIds,generation:number(meta.generation)+1});
  if(!previous){meta.reading.state='preparing';meta.status='assembled';meta.opening_ready=false;meta.opening=await store.opening(graph);meta.opening.opening_ready=false;}
- if(chosen)meta.opening_choice={start_scene:chosen,at:nowIso()};
+ if(chosen&&!shared)meta.opening_choice={start_scene:chosen,at:nowIso()};
  await store.writeGraph(meta,graph);
  let guidance:Row|undefined;
  if(chosen){const entry=entries.find(entry=>bindings[entry.id].node_id===chosen)??fail('Selected opening has no original reference');

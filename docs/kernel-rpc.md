@@ -2296,6 +2296,48 @@ Tests:
   the cap admitted, one past it refused `task_budget_exhausted`; an unreadable image or one by URL still reserves the
   window; text unchanged.
 
+**14.19.8 Completion never waits unbounded, and the shared library keeps no table's opening (2026-11-01, live7
+cs-1101b).**
+
+What happened (the live7 tree was only read):
+- **02:45Z.** The book's first page-open publication left the library "preparing" with no opening. This is normal for a
+  source-reference book: it asks no whole-book index (§182.4).
+- **03:00:11.** A 1101a setup's publication with `start_scene` wrote the library's `opening_choice` and pinned its entry
+  to `scene-source-entry-1`. Contrary to §14.19.1, the library graph and `module.json` were written with one table's
+  opening.
+- **cs-1101b setup.** The player chose `tongshen`, a candidate the source reference does not cover, so the publication
+  refused with "Selected opening has no bound original reference" (`reference_failed`). The campaign was still created on
+  it (the 14.19.7 path).
+- **The campaign's opening read.** In the campaign workspace the read ran 15 minutes; the review refused a sanity rule;
+  the read ran again.
+- **`complete`.** Each call waited the full 120 s foreground wait, then answered `reading_timeout` with "call
+  prepare-module again", a booked step. The driver's 300 s turns ran out in silence while the session was still waiting,
+  and the next two turns found it busy.
+
+Rules:
+
+1. **A shared-library publication keeps no table's opening.** A `module.reference.publish` that no campaign asked for
+   still binds its guidance to the requested opening. It no longer applies the choice to the shared graph's entry, and no
+   longer writes the library's `opening_choice`. A campaign pins its own opening at `campaign.create`, in its own
+   workspace.
+2. **`complete` waits a bounded allowance.** It waits on the opening's reading for `PI_COC_COMPLETE_WAIT_MS` (default
+   20,000 ms), and the reading goes on behind it. Then the kernel is asked, and it answers `campaign_not_ready /
+   opening_preparing`: the card is kept, and the host completes when the opening is ready.
+3. **A reading that fails during that wait is a structured refusal.** It answers `campaign_not_ready`, with
+   `details.reason: "opening_preparing"` and `details.reading` set to the reading's code, plus a `player_reason`. Its
+   `fix` names `complete` with `retry: true`, a step the table allows, never the booked preparation step.
+4. **An idle "preparing" state is reported and read again.** `module.status.reading.idle` is true when the state is
+   "preparing", the opening is not ready, and no job is queued or running: nothing will move that state on its own.
+   `complete` then asks the opening's reading again with `retry`, instead of waiting on it.
+
+Tests:
+- `tests/extension/setup-opening-retry.test.mjs`:
+  - the bounded allowance, and the structured refusal naming `complete` (not `prepare-module`);
+  - an idle reading is read again.
+- `tests/extension/page-open.test.mjs` ("live7 cs-1101b"), on the real kernel:
+  - a chosen opening leaves the library's `opening_choice` and entries untouched;
+  - the library left "preparing" with nothing running reports `idle`.
+
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
 一条世界线就是战役 sidecar 仓库里的一条分支。玩家在一个战役里同一时刻只玩一条线；可以分叉、回溯、切换、汇流；所有线都留着（证据永不删除）。什么跨线留下、谁记得别的线、汇流时怎么合，由模组图声明、内核确定性地算；守秘人只在胶囊里看到这是第几圈、锚点在哪、留下了什么、谁记得、有哪些回声可投放。世界线操作是世界的改变，所以走 `apply`（法则二），并在那一回合提交之后由内核执行——守秘人仍然只有七个动词。旧树世界线系统的双时态断言、九种记忆状态、跨战役转移、自动合并策略都不回来。
