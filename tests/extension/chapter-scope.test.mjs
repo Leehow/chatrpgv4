@@ -78,9 +78,10 @@ async function service(root,{scene,graph={},notes=[],searched=[],opening,campaig
    if(method==='module.source.snapshot')return {pdf,file_sha256:SHA,page_count:12,revision:'r1'};
    if(method==='module.status')return {title:'Blood Road',opening:opening?{start_scene:opening}:{},...(state.campaignOpening?{campaign_opening:state.campaignOpening}:{})};
    if(method==='table.capsule')return {where:{scene:state.scene,...(state.shown?{display_name:state.shown}:{})}};
-   // A graph entry is its pages (a scene), or {pages, kind, properties} for another structural kind.
+   // A graph entry is its pages (a scene), or {pages, kind, properties, origin, relations} for another structural kind.
    if(method==='table.lookup'){const own=graph[params.query];if(!own)return {entities:[]};
-    const entity=Array.isArray(own)?{kind:'scene',original_pages:own}:{kind:own.kind??'scene',...(own.properties?{properties:own.properties}:{}),original_pages:own.pages};
+    const entity=Array.isArray(own)?{kind:'scene',original_pages:own}:{kind:own.kind??'scene',...(own.properties?{properties:own.properties}:{}),original_pages:own.pages??[],
+     ...(own.origin?{origin:own.origin}:{}),...(own.relations?{relations:own.relations}:{})};
     return {entities:[{name:params.query,...entity}]};}
    return {};},
   campaign:()=>'c1',home:root,model:()=>({id:'m',vision:true}),progress:()=>{},record:row=>notes.push(row),...(env?{env}:{}),
@@ -571,3 +572,71 @@ test('§276.2: a scene that is the opening\'s reading anchor is judged by the op
  assert.deepEqual([(scope=await camp.reading.chapterScope('blood-road','c1')).name,scope.first,scope.last,scope.resolved],['Scenes',7,12,'opening']);
  camp.reading.dispose();
 }));
+
+/** A place the table made (`origin.kind: table`, no pages), registered inside the places `within` names (`located-in`). */
+const made=(...within)=>({pages:[],origin:{kind:'table'},relations:[...within.map(to=>({kind:'located-in',to})),{kind:'route-to',to:'Opening road'}]});
+
+test('§276.2 rule A: a place the table made is located by the pages of the place it was registered inside, and kept as scene_parent',async()=>lean(async()=>{
+ const {createHash}=await import('node:crypto'),{readFile}=await import('node:fs/promises');
+ const root=playtestScratch('chapter-scope','parent-'),notes=[];
+ const {reading,state}=await service(root,{scene:'back room',notes,campaignOpening:'Opening road',
+  graph:{'back room':made('Diner hall'),'Diner hall':[6,9,10],'Opening road':[3]}});
+ let scope=await reading.chapterScope('blood-road','c1');
+ assert.deepEqual([scope.name,scope.first,scope.last,scope.resolved],['Diner',6,12,'scene_parent'],'the parent\'s pages, not the opening (Intro)');
+ const file=join(root,'.coc','chapter-scope',`${createHash('sha256').update('c1').digest('hex').slice(0,32)}.json`);
+ assert.deepEqual(JSON.parse(await readFile(file,'utf8')),{version:3,modules:{'blood-road':{name:'Diner',first:6,last:12,campaign:'c1',source:'scene_parent'}}});
+ assert.deepEqual(notes.filter(row=>row.event==='chapter_scope').map(row=>[row.chapter,row.resolved,row.parent_level]),[['Diner','scene_parent',1]]);
+ reading.dispose();
+ // A scene_parent entry is kept evidence: a fresh service reads it back for a place nothing locates.
+ const again=await service(root,{scene:'a place the table made',graph:{'Opening road':[3]},campaignOpening:'Opening road'});
+ assert.deepEqual([(scope=await again.reading.chapterScope('blood-road','c1')).name,scope.resolved],['Diner','kept']);
+ again.reading.dispose();
+}));
+
+test('§276.2 rule A: the walk passes a parent with no pages to the grandparent, two levels up',async()=>lean(async()=>{
+ const notes=[];
+ const {reading}=await service(playtestScratch('chapter-scope','grandparent-'),{scene:'cellar',notes,campaignOpening:'Diner counter',
+  graph:{'cellar':made('station shed'),'station shed':made('Gas station'),'Gas station':[4],'Diner counter':[6,9,10]}});
+ const scope=await reading.chapterScope('blood-road','c1');
+ assert.deepEqual([scope.name,scope.resolved],['Intro','scene_parent']);
+ assert.equal(notes.find(row=>row.event==='chapter_scope').parent_level,2);
+ reading.dispose();
+}));
+
+test('§276.2 rule A: with no ancestor with pages within three levels the read falls through to the kept chapter',async()=>lean(async()=>{
+ const {reading,state}=await service(playtestScratch('chapter-scope','no-parent-'),{scene:'Diner counter',campaignOpening:'Opening road',
+  graph:{'Diner counter':[6,9,10],'Opening road':[3],'loft':made('attic'),'attic':made(),
+   'deep':made('l1'),'l1':made('l2'),'l2':made('l3'),'l3':made('Gas station'),'Gas station':[4]}});
+ assert.equal((await reading.chapterScope('blood-road','c1')).name,'Diner');
+ state.scene='loft';
+ let scope=await reading.chapterScope('blood-road','c1');
+ assert.deepEqual([scope.name,scope.resolved],['Diner','kept'],'the attic has no pages and no parent');
+ state.scene='deep';
+ assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Diner','kept'],'the place with pages is four levels up');
+ state.scene='an unregistered room';
+ assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Diner','kept'],'no row: as before');
+ reading.dispose();
+}));
+
+test('§276.2 rule A: a place registered inside itself, or a cycle, ends the walk and falls through to the kept chapter',async()=>lean(async()=>{
+ const {reading,state}=await service(playtestScratch('chapter-scope','cycle-'),{scene:'Diner counter',campaignOpening:'Opening road',
+  graph:{'Diner counter':[6,9,10],'Opening road':[3],'mirror':made('mirror'),'east':made('west'),'west':made('east')}});
+ assert.equal((await reading.chapterScope('blood-road','c1')).name,'Diner');
+ for(const scene of ['mirror','east']){state.scene=scene;const scope=await reading.chapterScope('blood-road','c1');
+  assert.deepEqual([scope.name,scope.resolved],['Diner','kept'],scene);}
+ const lookups=[];
+ assert.equal(await api.sceneParentPages({name:'east',kind:'scene',origin:{kind:'table'},relations:[{kind:'located-in',to:'west'}]},
+  async handle=>{lookups.push(handle);return {name:'west',kind:'scene',origin:{kind:'table'},relations:[{kind:'part-of',to:'east'}]};}),undefined);
+ assert.deepEqual(lookups,['west'],'east is not read again');
+ reading.dispose();
+}));
+
+test('§276.2 rule A: only a place the table made walks up, by located-in then part-of; a book place with no pages does not',async()=>{
+ const book={name:'hall',kind:'scene',relations:[{kind:'located-in',to:'town'}]};
+ assert.equal(await api.sceneParentPages(book,async()=>({name:'town',kind:'scene',original_pages:[4]})),undefined);
+ assert.deepEqual(api.placeParents({name:'r',relations:[{kind:'part-of',to:'b'},{kind:'route-to',to:'x'},{kind:'located-in',to:'a'},{kind:'located-in',to:'r'}]}),['a','b']);
+ const root={name:'m',kind:'module',original_pages:[1,2]},place={name:'p',kind:'location',original_pages:[5]};
+ const rows={m:{...root,relations:[{kind:'located-in',to:'p'}]},p:place};
+ assert.deepEqual(await api.sceneParentPages({name:'x',kind:'scene',origin:{kind:'table'},relations:[{kind:'located-in',to:'m'}]},async handle=>rows[handle]),
+  {name:'p',pages:[5],level:2},'a parent that is no place is passed through');
+});

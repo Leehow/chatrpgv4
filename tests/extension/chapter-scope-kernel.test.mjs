@@ -95,9 +95,9 @@ test('§276.2 (real kernel): an opening whose pages hold a majority starts the t
 	await table.raw('table.narrate', {campaign: table.campaign, call_id: 't0-c1', text: 'The tar smell carries up from the dock.'});
 	await table.raw('table.player_input', {campaign: table.campaign, text: 'I walk up to the newsstand on the main street.'});
 	await table.raw('table.apply', {campaign: table.campaign, call_id: 't1-c1', effects: [{kind: 'move', to: 'Main street newsstand', via: 'up the hill from the dock', travel_minutes: 5,
-		establish: {summary: 'A newsstand on the main street above the harbor.'}}]});
+		establish: {summary: 'A newsstand on the main street above the harbor.', within: null}}]});
 	const where = (await table.raw('table.capsule', {campaign: table.campaign, _context_read: true})).where;
-	assert.equal(where.scene, 'Main street newsstand', 'a scene the book has no pages for');
+	assert.equal(where.scene, 'Main street newsstand', 'a scene the book has no pages for, registered inside no place');
 	const scope = await table.reading.chapterScope(table.mid, table.campaign);
 	assert.deepEqual([scope.name, scope.first, scope.last, scope.resolved], ['Harbor', 5, 6, 'opening']);
 	assert.deepEqual(table.notes.filter(row => row.event === 'chapter_scope').map(row => [row.chapter, row.resolved]), [['Harbor', 'opening']]);
@@ -126,4 +126,34 @@ test('§276.2 (real kernel): an opening\'s reading anchor the party moves into d
 	assert.match(where.opening_anchor_note, /section of the book .* not a place\. Register the place/);
 	const scope = await table.reading.chapterScope(table.mid, table.campaign);
 	assert.deepEqual([scope.name, scope.resolved], ['Harbor', 'kept'], 'not Background, the anchor\'s page');
+});
+
+test('§276.2 rule A (real kernel): a place the table registers inside a book place is located by that place\'s pages, also two levels up', async t => {
+	const table = await bookTable(t, 'parent', [5, 6]);
+	assert.equal((await table.reading.chapterScope(table.mid, table.campaign)).name, 'Harbor', 'the opening');
+	const tower = (await table.raw('table.lookup', {campaign: table.campaign, kind: 'module', query: 'Tower', _context_read: true})).entities.find(row => row.kind === 'scene');
+	assert.deepEqual(tower.original_pages, [7]);
+	await table.raw('table.narrate', {campaign: table.campaign, call_id: 't0-c1', text: 'The tar smell carries up from the dock.'});
+	await table.raw('table.player_input', {campaign: table.campaign, text: 'I climb the tower stair.'});
+	await table.raw('table.apply', {campaign: table.campaign, call_id: 't1-c1', effects: [{kind: 'move', to: 'Tower stair', via: 'along the breakwater', travel_minutes: 10,
+		establish: {summary: 'A winding stair inside the old tower.', within: tower.name}}]});
+	const stair = (await table.raw('table.lookup', {campaign: table.campaign, kind: 'module', query: 'Tower stair', _context_read: true})).entities[0];
+	assert.deepEqual([stair.origin?.kind, stair.original_pages], ['table', []], 'a place the table made, no pages of its own');
+	assert.ok(stair.relations.some(rel => rel.kind === 'located-in' && rel.to === tower.name), 'registered inside the tower (located-in)');
+	let scope = await table.reading.chapterScope(table.mid, table.campaign);
+	assert.deepEqual([scope.name, scope.first, scope.last, scope.resolved], ['Tower', 7, 8, 'scene_parent']);
+	// The journey places a mint with no within inside the place the party stands (§264.14): the stair, whose parent is the tower.
+	await table.raw('table.narrate', {campaign: table.campaign, call_id: 't1-c2', text: 'The stair turns and turns.'});
+	await table.raw('table.player_input', {campaign: table.campaign, text: 'I keep climbing to the top.'});
+	await table.raw('table.apply', {campaign: table.campaign, call_id: 't2-c1', effects: [{kind: 'move', to: 'Lamp room', via: 'up the last steps', travel_minutes: 2,
+		establish: {summary: 'The lamp room at the top of the tower.'}}]});
+	assert.equal((await table.raw('table.capsule', {campaign: table.campaign, _context_read: true})).where.scene, 'Lamp room');
+	const lamp = (await table.raw('table.lookup', {campaign: table.campaign, kind: 'module', query: 'Lamp room', _context_read: true})).entities[0];
+	assert.deepEqual(lamp.relations.filter(rel => rel.kind === 'located-in').map(rel => rel.to), [stair.name], 'inside the stair, two levels below the tower');
+	table.notes.length = 0;
+	scope = await table.reading.chapterScope(table.mid, table.campaign);
+	assert.deepEqual([scope.name, scope.resolved], ['Tower', 'scene_parent']);
+	assert.deepEqual(table.notes.filter(row => row.event === 'chapter_scope'), [], 'the same chapter: nothing changed, nothing noted');
+	const kept = JSON.parse(await readFile(join(table.home, '.coc', 'chapter-scope', `${createHash('sha256').update(table.campaign).digest('hex').slice(0, 32)}.json`), 'utf8'));
+	assert.equal(kept.modules[table.mid].source, 'scene_parent');
 });

@@ -54221,7 +54221,7 @@ went to the later event; a city entry over 13 chapters put harbour scenes in the
 from the count (f13f3f8ce) took story chapters a verdict had judged resident out of play. Known issue: a place named mostly
 in a book's pregenerated-investigator pages still locates the party there (live 1031 cs). When nothing else decides, the authored opening's pages decide by the same rule; when they hold no
 majority, the party starts in the chapter of the opening's first page (audit 1031: du's opening on [4,5], cs's on [4,14,17] and
-ad's on [14..18] fell through to the first chapter, the keeper's background, and the kept chapter held the party there). A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
+ad's on [14..18] fell through to the first chapter, the keeper's background, and the kept chapter held the party there). A scene with no book pages (one the table made) is located by the place it was registered inside (rule A below), else keeps the chapter last resolved for the campaign and module; the host keeps
 it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's pages decide; with no opening pages either
 (or none that are evidence, below), the whole book unscoped. The chapter changes only when the party is in a book scene of another chapter.
 
@@ -54240,6 +54240,24 @@ entrance (`is_entrance` alone) are places. Live7 du-1101a/b: both tables opened 
 page and the keeper's background (pages 2-3); the Keeper played the Arkham cemetery inside that opening scene for eight turns
 without a move (the scene follows moves, §1.2.8: the opening locus was kept), the scene branch put the party in the background
 by its pages, and the places the table later made kept it there.
+
+**A place the table made is located by the place it was registered inside (rule A, 2026-11-01).** When the party's
+scene is a place the table made (its `table.lookup kind=module` row has `origin.kind: "table"` and no `original_pages`), the
+host walks up its registration parent chain to the first ancestor place that has book pages, at most three levels
+(`sceneParentPages`, `runtime/chapter-scope.ts`), and locates the party by that ancestor's pages with the same majority rule
+(`placeChapter`), resolved `scene_parent` and kept with source `scene_parent`. The parent is the one the graph records at
+registration: the row's `relations` entries `{kind: "located-in", to: <handle>}` (§187.2.1 / §264.14: a minted scene's
+`establish.within`, else the place the journey puts it in -- adjacent or no journey: the scene the party stood in;
+`local_travel`: that scene's parent; `long_travel` or `within: null`: none; §250: a location Mod place's `within`), then
+`part-of`, the first at each level (`placeParents`; `parentsOf`, `kernel-ts/read/places.ts`, which the kernel reads them
+by). Each ancestor is read by its own lookup row; one that is no place (`placesParty`) or has no pages is passed through. A
+place registered inside itself, or a cycle, ends the walk. With no ancestor with pages within three levels, or one whose pages
+hold no majority, the read falls through as before: pointer index, kept chapter, opening. The order is: the scene's own
+pages; an opening's reading anchor skips to the kept chapter (above); the registration parent; the pointer index; the kept
+chapter; the opening. Purely structural: no names or words are compared beyond the handle identity of a relation. Before,
+a place the table made always kept the last chapter even when it was registered inside a book place of another chapter (a
+room inside a book building went on reading the chapter of the place the party came from). The `chapter_scope` note carries
+`parent_level` (1-3) when it decided.
 
 **The Keeper is told while the party stands in an opening anchor (2026-11-01).** While the capsule's scene (`where.scene`,
 the world's `active_scene`) is such an anchor, read from the same structure (`isOpeningAnchor`, `kernel-ts/read/capsule.ts`),
@@ -54277,19 +54295,19 @@ choice (§22.6). Live 1031: in 32 tables no read ever resolved `opening`; cs and
 `scene-source-entry-4` against rows named `cult-initiation-ceremony` and `investigator-briefing`, so every one started in the
 keeper's background as the first chapter.
 
-Only a chapter located from evidence is kept: the scene's or the pointer index's pages, or the opening's. The unscoped
+Only a chapter located from evidence is kept: the scene's, its registration parent's or the pointer index's pages, or the opening's. The unscoped
 read is for that read alone, never written to the kept file, so the next read with a scene or an opening locates the
 party (live 1031: a first-chapter fallback kept at the opening turned every later read into `kept` and held the party in the
 keeper's background for the whole table).
 The kept file is versioned: `{"version": 3, "modules": {"<module_id>": {name, first, last, campaign, source}}}`, with
-`source` the evidence the chapter was located from: `opening`, `scene_majority` (the scene's graph pages) or
-`pointer_majority` (the pointer index's pages). On read, a file without that version, or an entry with no source or an
+`source` the evidence the chapter was located from: `opening`, `scene_majority` (the scene's graph pages), `scene_parent`
+(the pages of the place a table-made scene was registered inside, rule A) or `pointer_majority` (the pointer index's pages). On read, a file without that version, or an entry with no source or an
 unknown one, is void: it is not used as the kept chapter, and the next read relocates from evidence and overwrites it. Files
 written before 2026-11-01 (`{"<module_id>": {name, first, last, campaign}}`) are all void, since one may hold a first-chapter
 stand-in kept by the old rule. Version 2 files still count, except an entry located from the `opening`, which was located
 before the evidence threshold above (live7 du: the opening anchor's keeper background kept); it is void and relocated.
 Telemetry:
-`lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `pointer`, `kept`, `opening`, `none`) and the
+`lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `scene_parent`, `pointer`, `kept`, `opening`, `none`) and the
 chapter source (`bookmarks`, `headings`, `none`).
 
 ### 276.3 Every read is cut to it
