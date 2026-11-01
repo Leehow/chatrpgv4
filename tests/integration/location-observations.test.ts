@@ -8,8 +8,8 @@ import {compileTurnPacket,turnPacket} from '../../runtime/turn-packet-prototype.
 const world=(k:RpcClient)=>JSON.parse(readFileSync(join(campaignDir(k.workspace),'world.json'),'utf8'));
 const locations=(k:RpcClient)=>world(k).mods.state['enhanced-locations'].locations;
 const inspect=(k:RpcClient,extra:Row={})=>k.ok('mods.locations.inspect',{campaign:CAMPAIGN,need:'observation',name:'Street',at:'front steps',sense:'sight',...extra});
-const additions=[{name:'Street',description:'The street outside a modest inn.',features:[{name:'front steps',description:'The pavement at the inn entrance.'},{name:'far corner',description:'A separate corner beyond a delivery cart.'}]},
-    {name:'Inn room',description:'An upstairs room with a view of the entrance.',features:[{name:'window',description:'A clear glass casement.',state:'closed',passable:false}]}];
+const additions=[{name:'Street',within:null,description:'The street outside a modest inn.',features:[{name:'front steps',description:'The pavement at the inn entrance.'},{name:'far corner',description:'A separate corner beyond a delivery cart.'}]},
+    {name:'Inn room',within:null,description:'An upstairs room with a view of the entrance.',features:[{name:'window',description:'A clear glass casement.',state:'closed',passable:false}]}];
 const relation={from:{place:'Inn room',at:'window'},to:{place:'Street',at:'front steps'},sense:'sight',description:'The casement overlooks the inn entrance through clear glass.'};
 const initial={kind:'place',action:'observe',to:'Street',at:'front steps',sense:'sight',access:'clear',scope:'Only the pavement at the entrance.',
     facts:['The man in a cap and the man in a coat are arguing beside the steps.'],people:['Man in cap','Man in coat'],
@@ -158,7 +158,7 @@ test('an ordinary view derives the actual counter position without registering i
     await k.table('narrate',{call_id:'t1-c2',text:'The entrance is visible from the inn.'});
     await k.table('player_input',{text:'I stay at the counter and look outside through the doorway.'});
     await k.table('apply',{call_id:'t2-c1',effects:[{kind:'place',action:'move',to:'Inn room',at:'counter',relation:'beside',via:'Inside the inn',travel_band:'adjacent',
-        additions:[{name:'Inn room',features:[{name:'counter',description:'A counter opposite the entrance.'}]}]}]});
+        additions:[{name:'Inn room',within:null,features:[{name:'counter',description:'A counter opposite the entrance.'}]}]}]});
     const before=world(k);
     const description='From the counter, the open doorway shows the pavement at the entrance.';
     const result=await k.table('apply',{call_id:'t2-c2',effects:[{...initial,view:description}]});

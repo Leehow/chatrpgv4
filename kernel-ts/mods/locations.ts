@@ -8,7 +8,7 @@ import {stageMove,moveAccess,updateCompany} from '../apply/move.js';
 import {nowIso} from '../write/store.js';
 import {isPlace} from '../read/places.js';
 import {RpcError} from '../errors.js';
-import {isAmbiguity} from '../read/module-graph.js';
+import {isAmbiguity,type ModuleGraph} from '../read/module-graph.js';
 import {array,clone,normalize,row,type Row} from '../read/values.js';
 import {locationProvider,locationPlace,locationFeature,locationPlaces,locationFeatures,clearLocationPosition,qualifiedLocationFeature,LOCATION_POSITION_V2_CAPABILITY} from '../read/locations.js';
 import {LOCATION_OBSERVATION_CAPABILITY} from '../read/location-observations.js';
@@ -54,6 +54,15 @@ function forgiving(input:Row,adjusted:Row[]):Row {
     return effect;
 }
 
+/** §278: the scene a place addition without `within` may lie in: a place, never an opening reading anchor (`is_entrance` + `source_reference_anchor`). */
+export function defaultablePlaceParent(graph:ModuleGraph,scene:Row):boolean {
+    const marks=row(scene.properties);
+    return scene.node_kind==='scene'&&!(marks.is_entrance===true&&marks.source_reference_anchor===true)&&isPlace(graph,scene);
+}
+const knownPlace=(graph:ModuleGraph,world:Row,name:string):boolean=>{
+    const stored=locationPlaces(world);
+    return graph.scenes().some(node=>{const record=stored.find(place=>place.id===node.node_id);return record?normalize(record.name)===normalize(name):graph.nameKeys(node).some(key=>normalize(key)===normalize(name));});
+};
 export function stageLocation(context:ApplyContext,given:Row,active:readonly Row[],travelRows?:ReadonlyMap<string,number>|null):{receipt:Row;event:DomainEvent|null} {
     const adjusted:Row[]=[];
     let effect:Row=forgiving(given,adjusted);
@@ -95,6 +104,14 @@ export function stageLocation(context:ApplyContext,given:Row,active:readonly Row
             adjusted.push({field:`additions[${index}].within`,reason:'unregistered_parent_ignored',requested:draft.within});
         }
         if(parent&&!isPlace(graph,parent)){adjusted.push({field:`additions[${index}].within`,reason:'non_place_parent_ignored',requested:draft.within});parent=null;}
+        if(draft.within===undefined&&!parent){
+            // §278: an omitted within on a new place lies in the table's active scene, as an ordinary move's mint does.
+            const scene=graph.scene(world.active_scene);
+            if(defaultablePlaceParent(graph,scene)&&!knownPlace(graph,world,draft.name.trim())){
+                parent=scene;
+                adjusted.push({field:`additions[${index}].within`,reason:'within_defaulted',parent:graph.handle(scene)});
+            }
+        }
         const within=parent?graph.handle(parent):null;
         const parentParts=within?.split(' / ')??[],parts=draft.name.trim().split(' / ');
         const qualified=parentParts.length>0&&parts.length>parentParts.length&&parentParts.every((part,index)=>normalize(part)===normalize(parts[index]));

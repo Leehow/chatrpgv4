@@ -68,3 +68,26 @@ test('the apply result carries receipt names; only their canonical committed bod
   assert.equal(requested.length, 1);
   assert.deepEqual(calls.filter(call => call.method === 'table.place.bind').map(call => call.params.place), ['new-house']);
 });
+
+test('places a place or move receipt newly registered (added) start a binding once each, like a mint', async () => {
+  const asked = [], rows = [], done = deferred();
+  const owner = new PlaceBindings();
+  const deps = {campaign: 'c', turn: 2, moduleId: 'book', receipts: [{kind: 'place', action: 'establish', added: ['Inn', 'Inn / Room 203']},
+    {kind: 'move', to: 'Inn / Room 203', added: ['Inn / Room 203']}, {kind: 'place', action: 'move', added: []}, {kind: 'clue', added: ['Not a place']}],
+    call: async method => method === 'table.lookup' ? {entities: []} : {bound: true},
+    reference: async (_module, params) => {asked.push(params.focus);return original([{page: 2, text: 'In the book.'}]);},
+    record: row => {rows.push(row);if (rows.length === 2) done.resolve();}};
+  owner.start(deps);owner.start(deps);
+  await done.promise;
+  assert.deepEqual(asked.sort(), ['Inn', 'Room 203'], 'the label is the place\'s own leaf; a repeat or a clue starts nothing');
+});
+
+test('a registered place that already cites the book\'s pages is not read again', async () => {
+  const rows = [], done = deferred();let asked = 0;
+  new PlaceBindings().start({campaign: 'c', turn: 2, moduleId: 'book', receipts: [{kind: 'place', added: ['Old house']}],
+    call: async () => ({entities: [{name: 'Old house', summary: 'x', original_pages: [4]}]}),
+    reference: async () => {asked++;return original([{page: 2, text: 'x'}]);},
+    record: row => {rows.push(row);done.resolve();}});
+  await done.promise;
+  assert.equal(asked, 0);assert.deepEqual([rows[0].outcome, rows[0].reason], ['skipped', 'already_paged']);
+});

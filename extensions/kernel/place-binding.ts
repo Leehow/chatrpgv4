@@ -36,12 +36,18 @@ export class PlaceBindings {
     const names = deps.receipts.filter((value): value is string => typeof value === 'string');
     if (names.length) { void this.canonical(deps, new Set(names)); return; }
     for (const receipt of deps.receipts.map(object)) {
+      const places: [string, string][] = [];
       const place = text(receipt.to);
-      if (receipt.kind !== 'move' || receipt.established !== 'table' || !place) continue;
-      const key = JSON.stringify([deps.campaign, place]);
-      if (this.started.has(key)) continue;
-      this.started.add(key);
-      void this.bind(deps, place, text(receipt.to_label) || place);
+      if (receipt.kind === 'move' && receipt.established === 'table' && place) places.push([place, text(receipt.to_label) || place]);
+      // §278 / Enhanced Locations: places a place or move receipt newly registered (`added`) are table places like a mint is.
+      if ((receipt.kind === 'place' || receipt.kind === 'move') && Array.isArray(receipt.added))
+        for (const added of receipt.added.map(text).filter(Boolean)) places.push([added, added.split(' / ').pop() || added]);
+      for (const [name, label] of places) {
+        const key = JSON.stringify([deps.campaign, name]);
+        if (this.started.has(key)) continue;
+        this.started.add(key);
+        void this.bind(deps, name, label);
+      }
     }
   }
   private async canonical(deps: PlaceBindingDeps, names: ReadonlySet<string>): Promise<void> {
@@ -66,6 +72,8 @@ export class PlaceBindings {
       const view = object(await deps.call('table.lookup', {campaign: deps.campaign, kind: 'module', query: place, expected_kind: 'scene'}));
       const entities = (Array.isArray(view.entities) ? view.entities : []).map(object);
       const entity = entities.find(row => row.name === place) ?? (entities.length === 1 ? entities[0] : undefined);
+      // A place that already cites the book's pages (authored, or bound before) needs no second reference read.
+      if (Array.isArray(entity?.original_pages) && entity.original_pages.length) { await note({outcome: 'skipped', reason: 'already_paged'}); return; }
       const summary = text(entity?.summary);
       const result = await deps.reference(deps.moduleId, {campaign: deps.campaign, purpose: 'answer', focus: label,
         question: `Where does the book describe this place, and who and what is there? The table established it as: ${summary || label}`},

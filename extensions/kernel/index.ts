@@ -6860,8 +6860,10 @@ export default function (pi: ExtensionAPI, host: {capabilities?:RuntimeCapabilit
       if(spec.name==='apply')await observeWritingCompletion(state,result,writingMatches);
 
       // §204.4: a model's committed mint is bound to the book in the background, independently of the next player turn.
-      if (spec.name === 'apply' && !host && evidence.label === 'model' && Array.isArray(payload.effects)
-        && payload.effects.some(effect => effect && typeof effect === 'object' && effect.kind === 'move' && effect.establish !== undefined)) {
+      // Enhanced Locations registrations (kind place, or a move with additions) reach the same binding, from the native place action and output.commands alike.
+      if (spec.name === 'apply' && !host && Array.isArray(payload.effects)
+        && payload.effects.some(effect => effect && typeof effect === 'object' && (evidence.label === 'model' && effect.kind === 'move' && effect.establish !== undefined
+          || effect.kind === 'place' || effect.kind === 'move' && Array.isArray((effect as Record<string, unknown>).additions) && (effect as Record<string, unknown>).additions))) {
         const sourceReader = reading;
         placeBindings.start({campaign: state.campaign, turn: state.turn, moduleId: readingModule,
           receipts: Array.isArray(result.receipts) ? result.receipts : [],
