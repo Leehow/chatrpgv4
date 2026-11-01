@@ -54006,7 +54006,21 @@ in a book's pregenerated-investigator pages still locates the party there (live 
 majority, the party starts in the chapter of the opening's first page (audit 1031: du's opening on [4,5], cs's on [4,14,17] and
 ad's on [14..18] fell through to the first chapter, the keeper's background, and the kept chapter held the party there). A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
 it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's pages decide; with no opening pages either,
-the first chapter. The chapter changes only when the party is in a book scene of another chapter. Telemetry:
+the first chapter. The chapter changes only when the party is in a book scene of another chapter.
+
+The opening is the campaign's own: `module.status` called with a campaign carries `campaign_opening`, the campaign's
+recorded `opening_scene` as the table names it, and the host looks that up (`table.lookup kind=module`); the module's
+`opening.start_scene` is read only from a kernel that does not answer `campaign_opening`. The module's opening is the book's
+node id, which no lookup row of a name-free campaign shows (§185.12), and a library's opening may be another campaign's
+choice (§22.6). Live 1031: in 32 tables no read ever resolved `opening`; cs and du named `scene-source-entry-1` and
+`scene-source-entry-4` against rows named `cult-initiation-ceremony` and `investigator-briefing`, so every one started in the
+keeper's background as the first chapter.
+
+Only a chapter located from evidence is kept: the scene's or the pointer index's pages, or the opening's. The first chapter
+is a stand-in for that read alone, never written to the kept file, so the next read with a scene or an opening locates the
+party (live 1031: a first-chapter fallback kept at the opening turned every later read into `kept` and held the party in the
+keeper's background for the whole table). The stand-in is noted once per campaign and module until a chapter is located.
+A kept file written before this rule may hold such a stand-in; it is read as any kept chapter. Telemetry:
 `lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `pointer`, `kept`, `opening`, `first`) and the
 chapter source (`bookmarks`, `headings`, `none`).
 

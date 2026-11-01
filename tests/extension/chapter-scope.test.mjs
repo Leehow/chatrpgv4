@@ -66,15 +66,15 @@ test('§276.3, §276.4: an answer is cut to the chapter; one left with no page i
 });
 
 /** A reading service over a fake kernel: a 12-page book whose chapters are Intro p3-5 and Diner p6-12. */
-async function service(root,{scene,graph={},notes=[],searched=[],opening,env,bookmarks=[{name:'Intro',page:3},{name:'Diner',page:6}],pageText=page=>`Text of page ${page}.`,pageCalls=[]}={}){
+async function service(root,{scene,graph={},notes=[],searched=[],opening,campaignOpening,env,bookmarks=[{name:'Intro',page:3},{name:'Diner',page:6}],pageText=page=>`Text of page ${page}.`,pageCalls=[]}={}){
  const pdf=join(root,'book','book.pdf'),cache=join(root,'book','cache');
  await mkdir(cache,{recursive:true});
  await writeFile(join(cache,`blocks-${SHA}.json`),JSON.stringify({layout_version:'v',pages:Object.fromEntries(Array.from({length:12},(_,i)=>[i+1,{page:i+1,blocks:[{id:`b${i+1}-0-x`,text:`Page ${i+1} heading`}]}]))}));
- const state={scene};
+ const state={scene,campaignOpening};
  const reading=new api.ReadingService({
   call:async(method,params)=>{
    if(method==='module.source.snapshot')return {pdf,file_sha256:SHA,page_count:12,revision:'r1'};
-   if(method==='module.status')return {title:'Blood Road',opening:opening?{start_scene:opening}:{}};
+   if(method==='module.status')return {title:'Blood Road',opening:opening?{start_scene:opening}:{},...(state.campaignOpening?{campaign_opening:state.campaignOpening}:{})};
    if(method==='table.capsule')return {where:{scene:state.scene,...(state.shown?{display_name:state.shown}:{})}};
    if(method==='table.lookup')return {entities:graph[params.query]?[{name:params.query,kind:'scene',original_pages:graph[params.query]}]:[]};
    return {};},
@@ -337,3 +337,37 @@ test('§276.2: a place locates the party only when more than half of its pages s
  assert.equal(api.placeChapter(book,[4,18,19,20]).name,'Pregens');
  assert.equal(api.placeChapter(book,[]),undefined,'no pages decide nothing');
 });
+
+test('§276.2: a fork\'s opening is the campaign\'s recorded opening, not the book node id the module names',async()=>lean(async()=>{
+ // live 1031 cs/du: module.status named `scene-source-entry-1`, a node id no lookup row of a name-free campaign shows; the
+ // campaign recorded its handle `cult-initiation-ceremony`, and the opening never matched.
+ const notes=[];
+ const {reading}=await service(playtestScratch('chapter-scope','opening-fork-'),{scene:'a place the table made',notes,
+  graph:{'cult-initiation-ceremony':[4,7,11]},opening:'scene-source-entry-1',campaignOpening:'cult-initiation-ceremony',
+  bookmarks:[{name:'Background',page:2},{name:'Intro',page:3},{name:'Diner',page:6}]});
+ const scope=await reading.chapterScope('blood-road','c1');
+ assert.deepEqual([scope.name,scope.resolved],['Diner','opening'],'two of its three pages stand in Diner');
+ assert.deepEqual(notes.filter(row=>row.event==='chapter_scope').map(row=>row.resolved),['opening']);
+ reading.dispose();
+}));
+
+test('§276.2: the first chapter is a stand-in, never kept: a later read with an opening or a scene still locates the party',async()=>lean(async()=>{
+ const root=playtestScratch('chapter-scope','first-stand-in-'),notes=[];
+ const {reading,state}=await service(root,{scene:'a place the table made',notes,graph:{'Opening road':[4,5],'Diner counter':[6,9]}});
+ const file=join(root,'.coc','chapter-scope');
+ assert.deepEqual([(await reading.chapterScope('blood-road','c1')).resolved,(await reading.chapterScope('blood-road','c1')).resolved],['first','first'],'not kept');
+ assert.equal(await (await import('node:fs/promises')).readdir(file).then(rows=>rows.filter(name=>!name.startsWith('resident-')).length,()=>0),0,'nothing written');
+ state.campaignOpening='Opening road';
+ assert.deepEqual(Object.values(await reading.chapterScope('blood-road','c1')).slice(0,4),['Intro',3,5,'bookmarks']);
+ state.scene='Diner counter';
+ assert.equal((await reading.chapterScope('blood-road','c1')).resolved,'scene');
+ state.scene='a back room the table made';
+ assert.deepEqual([(await reading.chapterScope('blood-road','c1')).name,(await reading.chapterScope('blood-road','c1')).resolved],['Diner','kept'],'a located chapter is kept');
+ assert.deepEqual(notes.filter(row=>row.event==='chapter_scope').map(row=>[row.chapter,row.resolved]),[['Intro','first'],['Intro','opening'],['Diner','scene']],
+  'the stand-in is noted once');
+ reading.dispose();
+ const fresh=await service(root,{scene:'a place the table made',graph:{}});
+ assert.equal((await fresh.reading.chapterScope('blood-road','c1')).resolved,'kept','a kept chapter is read back from disk');
+ fresh.reading.dispose();
+}));
+

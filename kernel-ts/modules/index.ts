@@ -211,6 +211,18 @@ export function createModuleRuntime(context: KernelContext) {
             result.campaign = await scopedModuleRoot(context, campaign, id) !== null ? string(row(await scopedRuntime(campaign).handlers['module.skeleton.index'](params)).state) : 'no_fork';
         return result;
     };
+    /**
+     * §276.2: a campaign's `module.status` also names the opening that campaign recorded (`campaign.json` `opening_scene`), as
+     * the table names it. The module's own `opening.start_scene` is the book's node id, which a name-free campaign's surfaces
+     * never show (§185.12), and a library's opening may be another campaign's choice (§22.6).
+     */
+    const campaignOpening = async (campaign: unknown): Promise<Row> => {
+        if (typeof campaign !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(campaign)) return {};
+        const path = join(context.campaignsRoot, campaign, 'campaign.json');
+        if (!await context.snapshots.pathExists(path)) return {};
+        const scene = row(await context.snapshots.readJson(path)).opening_scene;
+        return typeof scene === 'string' && scene ? { campaign_opening: scene } : {};
+    };
     const dispatch = async (method: string, params: Row): Promise<Row> => {
         if(method==='module.source.upgrade') {
             const id=required(params,'module_id'); let target=await owner(params.campaign,id);
@@ -228,6 +240,7 @@ export function createModuleRuntime(context: KernelContext) {
         if (libraryOnly.has(method) || params.campaign === undefined || typeof params.module_id !== 'string')
             return library.handlers[method](params);
         const id = required(params, 'module_id'), campaign = params.campaign;
+        if (method === 'module.status') return { ...await crossing(method, params, id, campaign, null), ...await campaignOpening(campaign) };
         // §185.12: a name-free campaign's handles cross into the reading layer as node ids, and come back out as its handles.
         const boundary = BOUNDARY_METHODS.has(method) ? await campaignBoundary(context, campaign, id) : null;
         if (boundary) return boundary.out(() => crossing(method, params, id, campaign, boundary));

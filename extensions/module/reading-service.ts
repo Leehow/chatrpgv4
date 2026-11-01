@@ -568,6 +568,8 @@ export class ReadingService implements ReadingBridge {
 	private chapterBooks = new Map<string, Promise<{ source: ChapterSource; chapters: Chapter[] }>>();
 	/** §276.2: the chapter last resolved per campaign and module, as `{name, first, last}`. */
 	private keptChapters = new Map<string, Chapter>();
+	/** §276.2: the first-chapter stand-in last noted per campaign and module; never kept. */
+	private standIns = new Map<string, string>();
 	private chapterFile(campaign: string): string { return join(this.deps.home, ".coc", "chapter-scope", `${createHash("sha256").update(campaign).digest("hex").slice(0, 32)}.json`); }
 	private async keptChapter(campaign: string, mid: string): Promise<Chapter | undefined> {
 		const key = JSON.stringify([campaign, mid]);
@@ -626,8 +628,8 @@ export class ReadingService implements ReadingBridge {
 	}
 	/**
 	 * §276.2: the chapter the party is in: the one holding the anchor page of its scene's book pages; for a scene the table
-	 * made, the chapter kept for the campaign; then the opening scene's; then the first chapter. Undefined only without a
-	 * campaign or a bound document.
+	 * made, the chapter kept for the campaign; then the campaign's opening scene's; then the first chapter, which is never
+	 * kept. Undefined only without a campaign or a bound document.
 	 */
 	async chapterScope(mid: string, campaign: string | undefined, signal?: AbortSignal): Promise<ChapterScope | undefined> {
 		if (campaign === undefined) return undefined;
@@ -655,19 +657,27 @@ export class ReadingService implements ReadingBridge {
 		}
 		if (!chapter) {
 			resolved = "opening";
-			const start = String((await this.call("module.status", { module_id: mid }, campaign).catch(() => undefined))?.opening?.start_scene ?? "");
+			// The campaign's own opening, as the table names it (live 1031: the module's `opening.start_scene` is the book's node id,
+			// which no `table.lookup` row of a name-free campaign shows, so the opening never matched and the party started in the
+			// first chapter); the module's opening only for a kernel that does not name the campaign's.
+			const status = await this.call("module.status", { module_id: mid }, campaign).catch(() => undefined);
+			const start = String(status?.campaign_opening || status?.opening?.start_scene || "");
 			// The authored opening is where play starts: when its pages hold no majority, the chapter its first page stands in
 			// (audit 1031: openings on [4,5], [4,14,17], [14..18] fell through to the keeper's background as the first chapter).
 			const pages = await this.graphPages(campaign, start).catch(() => [] as number[]);
 			chapter = located(pages) ?? (pages.length ? chapterHolding(book.chapters, Math.min(...pages)) : undefined);
 		}
 		if (!chapter) { resolved = "first"; chapter = book.chapters.find(row => row.first > 1 || book.chapters.length === 1) ?? book.chapters[0]; }
-		const before = await this.keptChapter(campaign, mid);
-		if (!before || before.first !== chapter.first || before.last !== chapter.last) {
-			await this.keepChapter(campaign, mid, chapter).catch(() => undefined);
-			this.note({ lane: "reading", event: "chapter_scope", module_id: mid, campaign, chapter: chapter.name, first: chapter.first, last: chapter.last,
-				resolved, source: book.source, ...(before ? { previous: before.name } : {}) });
-		}
+		// Only a chapter located from evidence (the scene's or the pointer index's pages, the opening) is kept: the first chapter
+		// is a stand-in until a later read has evidence, never the kept chapter that would hold the party there (live 1031: a
+		// first-chapter fallback kept at the opening resolved every later read `kept`).
+		const before = await this.keptChapter(campaign, mid), key = JSON.stringify([campaign, mid]);
+		const changed = resolved === "first" ? this.standIns.get(key) !== `${chapter.first}-${chapter.last}`
+			: !before || before.first !== chapter.first || before.last !== chapter.last;
+		if (resolved === "first") this.standIns.set(key, `${chapter.first}-${chapter.last}`);
+		else { this.standIns.delete(key); if (changed) await this.keepChapter(campaign, mid, chapter).catch(() => undefined); }
+		if (changed) this.note({ lane: "reading", event: "chapter_scope", module_id: mid, campaign, chapter: chapter.name, first: chapter.first, last: chapter.last,
+			resolved, source: book.source, ...(before ? { previous: before.name } : {}) });
 		// §276.5: the reference chapters read from any chapter; the current one is never its own resident.
 		const current = chapter, resident = residents.filter(own => own.first !== current.first || own.last !== current.last);
 		const scope: ChapterScope = { ...chapter, source: book.source, resolved, ...(resident.length ? { resident } : {}) };
