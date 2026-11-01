@@ -2365,9 +2365,12 @@ a choice existed and that the candidates had been put out. It never checked that
 tables where it worked had gone through Jev's `pick_opening` (`o0`) after the player replied. Evidence:
 `kp-translate-only/opening-names-1101.md`. Rules, for every book:
 
-1. **When the question was asked.** The host notes the player input (`inputKey`) in whose turn a candidate was first
-   offered (`openingAskedAt`, set by `poseOpening` only when a candidate is new). Asking the same candidates again does
-   not move it.
+1. **When the question was asked.** The host notes the player input in whose turn a candidate was first offered
+   (`openingAskedAt`, the setup input ordinal of `coc-setup-input-epoch`, set by `poseOpening` only when a candidate is
+   new). Asking the same candidates again does not move it. The ordinal and the offered ids are also appended as the
+   session entry `coc-setup-opening-asked` (`{ordinal, offered}`) and restored at `session_start`. A setup restarted on
+   the same session (`runtime/launch.ts` names it `coc-setup-<campaign>`) therefore continues the ordinals and does not
+   mistake the answer's turn for the asking one. A setup that starts a new session asks again, as §14.19.5 says.
 2. **A start_scene from the asking turn is refused.** On a book whose openings were offered, the preparation step refuses
    a `start_scene` received in that same input: `code: "opening_not_chosen_by_player"`,
    `details: {field: "start_scene", reason: "no_player_reply_since_question", given, candidates}`, a `fix` that says to
@@ -2385,7 +2388,7 @@ tables where it worked had gone through Jev's `pick_opening` (`o0`) after the pl
    `complete` is answered `code: "opening_already_bound"`, `details: {reason: "campaign_opening_bound", given, bound}`,
    with a `player_reason` ("start a new table"), and not with "already done". The remedy path for a campaign that was
    created with no opening (14.19.1, `module.opening.choose {campaign}`) is unchanged. Re-pinning a created campaign
-   would need a kernel method; this section adds none.
+   would need a kernel method; this section adds none (ticket `docs/specs/campaign-opening-rechoice.md`).
 5. **Answers by position.** Every candidate list the host hands on carries `ordinal` (1-based, the position it is offered
    at). This covers `needs_choice` details from `create-campaign`, the preparation step and the pin, the block and its
    refusal, the turn-start prompt's list, and `setup` read's `openings`. The guide offers openings by ordinal. An answer
@@ -2402,6 +2405,7 @@ Tests:
   - the same on the driven engine, with a fake Jev answering `o0`.
   - correction before creation, and the bound refusal after it.
   - the turn-start prompt in both turns.
+  - a setup restarted on the same session takes the player's answer, while a session without the record refuses it.
 - `tests/extension/setup-opening-choice.test.mjs`: its cases now answer the question in a later turn and expect numbered
   candidates.
 

@@ -251,6 +251,11 @@ export async function openTable({
 	 */
 	priorSystemPrompt,
 	/**
+	 * Custom entries the session file already holds ({customType, data}), as a restarted process reopening the same
+	 * session id finds them (`runtime/launch.ts` gives a setup session `coc-setup-<campaign>`).
+	 */
+	priorEntries = [],
+	/**
 	 * Pi's RunDriver for this session (`PI_COC_LOOP_ENGINE=hybrid-v1`, single-loop SL-01): the session's
 	 * runs go through the vendored agent-core driver with this policy and these ports. Absent, the
 	 * session runs the legacy model-first loop, as every other test here does.
@@ -406,6 +411,7 @@ export async function openTable({
 		sessionManager.appendMessage({ role: "system", content: "",
 			sections: { preamble: priorSystemPrompt, cwd: `<cwd>\n${workspace}\n</cwd>` }, timestamp: Date.now() });
 	}
+	for (const entry of priorEntries) sessionManager.appendCustomEntry(entry.customType, entry.data);
 	const resourceLoader = new DefaultResourceLoader({
 		cwd: workspace,
 		agentDir: join(workspace, "agent"),

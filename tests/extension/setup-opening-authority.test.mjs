@@ -229,3 +229,31 @@ test("§14.19.10: the turn-start question tells the guide to stop in the asking 
 	const pinned = run.table.kernelRequests().filter((row) => row.method === "module.opening.choose").at(-1);
 	assert.deepEqual([pinned.params.scene, pinned.params.campaign], ["dock", "legacy-two"]);
 });
+
+test("§14.19.10 restart: a setup reopened on the same session takes back when its openings were asked, so the player's answer is not the asking turn", async (t) => {
+	const resume = { completed: ["choose-source", "create-campaign"],
+		state: { campaign: "legacy-two", module_id: "two-door", module: "two-door", source: { kind: "pdf", module_id: "two-door" }, source_kind: "pdf", play_language: "en", start_scene: null } };
+	const env = { FAKE_SETUP_RESUME: JSON.stringify(resume) };
+	const first = await twoDoorTable(t, { campaign: "legacy-two", env, responses: [fauxAssistantMessage("Which opening: 1. The Dock or 2. The Tower?")] });
+	await first.table.session.prompt("I want to make my character.");
+	await waitForIdle(first.table.session);
+	const asked = first.table.entries("coc-setup-opening-asked");
+	assert.deepEqual(asked, [{ ordinal: 1, offered: ["scene-dock", "scene-tower"] }], "the asking turn is recorded in the session");
+	const carried = [...first.table.entries("coc-setup-input-epoch").map((data) => ({ customType: "coc-setup-input-epoch", data })),
+		...asked.map((data) => ({ customType: "coc-setup-opening-asked", data }))];
+
+	const answer = [setupCall({ step: "prepare-module", start_scene: "dock" }), fauxAssistantMessage("The dock.")];
+	const resumed = await twoDoorTable(t, { campaign: "legacy-two", env, priorEntries: carried, responses: answer });
+	await resumed.table.session.prompt("The first.");
+	await waitForIdle(resumed.table.session);
+	const chose = setupResults(resumed.table.session).at(-1);
+	assert.equal(chose.ok, true, `the answer after a restart is taken: ${JSON.stringify(chose)}`);
+	const pinned = resumed.table.kernelRequests().filter((row) => row.method === "module.opening.choose").at(-1);
+	assert.deepEqual([pinned.params.scene, pinned.params.campaign], ["dock", "legacy-two"]);
+
+	// Without the session's record the same answer would be read as the asking turn: the edge this closes.
+	const cold = await twoDoorTable(t, { campaign: "legacy-two", env, responses: answer });
+	await cold.table.session.prompt("The first.");
+	await waitForIdle(cold.table.session);
+	assert.equal(setupResults(cold.table.session).at(-1).code, "opening_not_chosen_by_player");
+});

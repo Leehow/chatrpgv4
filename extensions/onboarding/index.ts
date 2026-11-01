@@ -241,11 +241,13 @@ export default function (pi: ExtensionAPI) {
    */
   const openingsOffered = new Set<string>();
   /**
-   * §14.19.10: the player input (`inputKey`) in whose turn an opening candidate was first put to the player. A start_scene
-   * is the player's answer only when it comes in a later input: live7 du-1101a/b and cs-1101b, the guide chose an opening
-   * in the very turn the question was posed, before the player could read it, and the campaign was created on it.
+   * §14.19.10: the player input (its setup input ordinal, which a resumed session continues) in whose turn an opening
+   * candidate was first put to the player. A start_scene is the player's answer only when it comes in a later input:
+   * live7 du-1101a/b and cs-1101b, the guide chose an opening in the very turn the question was posed, before the player
+   * could read it, and the campaign was created on it. Kept as a session entry (`coc-setup-opening-asked`, with the
+   * offered ids) so a restarted setup on the same session does not take the answer's turn for the asking one.
    */
-  let openingAskedAt: string | undefined;
+  let openingAskedAt: number | undefined;
   /** The last candidates put to the player, numbered, for the refusal that sends the guide back to the question. */
   let openingsShown: unknown[] = [];
   /**
@@ -259,8 +261,21 @@ export default function (pi: ExtensionAPI) {
     openingsShown = numbered;
     let fresh = false;
     for (const row of rows) { const id = asString(asRecord(row).node_id) ?? asString(asRecord(row).scene); if (id && !openingsOffered.has(id)) { openingsOffered.add(id); fresh = true; } }
-    if (fresh) openingAskedAt = inputKey;
+    if (fresh) {
+      openingAskedAt = inputOrdinal;
+      try { pi.appendEntry('coc-setup-opening-asked', {ordinal: inputOrdinal, offered: [...openingsOffered]}); } catch { /* the record is a convenience for a restart */ }
+    }
     return numbered;
+  }
+  /** §14.19.10: a resumed setup session takes back when its openings were asked and which ones, from its own entries. */
+  function restoreOpeningAsked(): void {
+    let entries: any[] = [];
+    try { const value = (ctx?.sessionManager as any)?.getEntries?.(); entries = Array.isArray(value) ? value : []; } catch { return; }
+    const last = entries.filter((entry) => entry?.type === 'custom' && entry.customType === 'coc-setup-opening-asked').at(-1)?.data;
+    const ordinal = Number(last?.ordinal);
+    if (!Number.isSafeInteger(ordinal) || ordinal < 0) return;
+    openingAskedAt = ordinal;
+    for (const id of Array.isArray(last.offered) ? last.offered : []) if (typeof id === 'string' && id) openingsOffered.add(id);
   }
   /** The candidate a start_scene names (by node id or scene handle, exactly), so two spellings of one candidate compare equal. */
   function openingIdentity(scene: string | undefined): string | undefined {
@@ -921,7 +936,7 @@ export default function (pi: ExtensionAPI) {
 	 */
 	function openingAuthority(id: string, requested: string, startedAt: number): Record<string, unknown> | undefined {
 		if (!openingsOffered.size) return undefined;
-		if (openingAskedAt !== undefined && openingAskedAt === inputKey) {
+		if (openingAskedAt !== undefined && openingAskedAt === inputOrdinal) {
 			return withReason({ok: false, step: id, code: 'opening_not_chosen_by_player',
 				message: 'the opening question was put to the player in this turn and they have not answered it yet; a start_scene is taken only from their reply',
 				fix: `ask the player which opening to start from (details.candidates: ordinal, name and summary) and end this reply; when they answer, call ${id} with the scene of the candidate they chose as start_scene (an answer by position is the candidate with that ordinal)`,
@@ -1580,7 +1595,7 @@ export default function (pi: ExtensionAPI) {
         // §14.19: a missing opening is the guide's question, not a failure: no error notice, the guide's
         // text stays on screen, and the step that records the answer stays open (§98 addendum 9).
         // §14.19.10: asked for the first time this turn, the player has not seen it yet; asked before, this message may answer it.
-        const ask=openingAskedAt===inputKey
+        const ask=openingAskedAt===inputOrdinal
           ?'Ask the player which one to start from, offering each by its ordinal, its name and what it is about (the list below), and end your reply there: the choice is the player\'s, and a start_scene sent in this turn is refused. When they answer, call setup '
           :'The player was asked which one to start from. If their message answers it, call setup ';
 		return {systemPrompt:base+'\nThis book has more than one opening and this campaign has none recorded yet. '+ask+(remedyStep()??'prepare-module')+' with the exact chosen candidate.scene handle as start_scene: it records the choice and prepares the module guidance; an answer by position names the candidate with that ordinal. Otherwise ask, offering each opening by its ordinal, its name and what it is about. Do not translate that handle. Until then do not invent a prologue or create an investigator.\nOpenings: '+JSON.stringify(numbered)};
@@ -1653,6 +1668,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, sessionCtx) => {
 		ctx = sessionCtx;
         inputCatalog=undefined;inputKey="";lastPlayerInput="";inputOrdinal=0;earlierInputs=[];
+		restoreOpeningAsked();
 		steps = undefined;
 		completed.clear();
 		opCache.clear();
