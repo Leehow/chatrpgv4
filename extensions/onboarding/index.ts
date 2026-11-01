@@ -125,7 +125,7 @@ function setupBlockRefusal(block: SetupBlock, remedy?: string): Record<string, u
 	} else if (block.kind === 'package_context') {
 		error = `The setup package context could not be read (mods.context: ${why}). Setup is blocked until it is restored: fix or disable the package the error names in the Mods panel, then wait for a new player input, which reads the context again; do not draft or continue setup on the core policy alone.`;
 	} else if (block.code === 'needs_choice') {
-		error = `Setup waits for the opening (${why}). Ask the player which opening to start from (details.candidates), then call ${remedy ?? 'the preparation step'} with the exact chosen candidate.scene handle as start_scene: it records the choice and prepares the guidance again. Do not translate that handle, invent a setup scene or create a card.`;
+		error = `Setup waits for the opening (${why}). Ask the player which opening to start from (details.candidates, by ordinal, name and summary); when they answer, call ${remedy ?? 'the preparation step'} with the exact chosen candidate.scene handle as start_scene: it records the choice and prepares the guidance again. Do not translate that handle, invent a setup scene or create a card.`;
 	} else {
 		const when = block.kind === 'guidance_at_create_campaign' ? 'when create-campaign ran' : 'at the start of this turn';
 		const fix = block.code === 'guidance_not_ready'
@@ -240,10 +240,36 @@ export default function (pi: ExtensionAPI) {
    * question -- is not in it, and create-campaign asks again instead of carrying the old choice.
    */
   const openingsOffered = new Set<string>();
-  /** The candidates of one opening question become the ones the player was shown. */
-  function poseOpening(rows: unknown[]): void {
-    openingQuestion = rows;
-    for (const row of rows) { const id = asString(asRecord(row).node_id) ?? asString(asRecord(row).scene); if (id) openingsOffered.add(id); }
+  /**
+   * §14.19.10: the player input (`inputKey`) in whose turn an opening candidate was first put to the player. A start_scene
+   * is the player's answer only when it comes in a later input: live7 du-1101a/b and cs-1101b, the guide chose an opening
+   * in the very turn the question was posed, before the player could read it, and the campaign was created on it.
+   */
+  let openingAskedAt: string | undefined;
+  /** The last candidates put to the player, numbered, for the refusal that sends the guide back to the question. */
+  let openingsShown: unknown[] = [];
+  /**
+   * The candidates of one opening question become the ones the player was shown. Each carries its 1-based `ordinal`, the
+   * position it is offered at, so an answer by position is mapped to a candidate by the guide (or Jev's `o<index>`),
+   * never by matching words in the reply. Returns the numbered rows every projection of the question hands on.
+   */
+  function poseOpening(rows: unknown[]): unknown[] {
+    const numbered = rows.map((row, index) => ({...asRecord(row), ordinal: index + 1}));
+    openingQuestion = numbered;
+    openingsShown = numbered;
+    let fresh = false;
+    for (const row of rows) { const id = asString(asRecord(row).node_id) ?? asString(asRecord(row).scene); if (id && !openingsOffered.has(id)) { openingsOffered.add(id); fresh = true; } }
+    if (fresh) openingAskedAt = inputKey;
+    return numbered;
+  }
+  /** The candidate a start_scene names (by node id or scene handle, exactly), so two spellings of one candidate compare equal. */
+  function openingIdentity(scene: string | undefined): string | undefined {
+    if (!scene) return undefined;
+    const row = openingsShown.map(asRecord).find((candidate) => asString(candidate.node_id) === scene || asString(candidate.scene) === scene);
+    return row ? asString(row.node_id) ?? asString(row.scene) : scene;
+  }
+  function sameOpening(left: string | undefined, right: string | undefined): boolean {
+    return left !== undefined && right !== undefined && openingIdentity(left) === openingIdentity(right);
   }
   /** §14.19: the opening the campaign itself pins -- campaign.create's, the resumed record's, or the one the remedy pinned. */
   let campaignOpening: string | undefined;
@@ -875,6 +901,44 @@ export default function (pi: ExtensionAPI) {
 		return setupBlock ? guidanceBlock(setupBlock) : openingQuestion !== undefined || openingGuidanceOwed !== undefined;
 	}
 
+	/**
+	 * §14.19.10 correction: before the campaign exists, a player who answers with a different opening than the one
+	 * recorded may change it. The preparation step is reopened for that call only (a different start_scene, on a book
+	 * whose openings were put to the player); the same opening again is still "already done".
+	 */
+	function rechoosing(requested: string | undefined): boolean {
+		const creation = stepWithOp('campaign.create');
+		return !!requested && openingsOffered.size > 0 && !!asString(context.start_scene) && !sameOpening(requested, asString(context.start_scene))
+			&& !(creation && completed.has(creation.id));
+	}
+
+	/**
+	 * §14.19.10: who may name the opening. On a book whose openings were put to the player, a start_scene is taken only from
+	 * a player input that came after the question: one sent in the turn that first asked it is the guide choosing for the
+	 * player, and is refused without running or booking anything. Once the campaign exists its opening is bound (the kernel
+	 * keeps it in `campaign.json` and the world it writes), so a later, different choice is refused with that reason rather
+	 * than "already done". Returns the refusal, or undefined when the call may go on.
+	 */
+	function openingAuthority(id: string, requested: string, startedAt: number): Record<string, unknown> | undefined {
+		if (!openingsOffered.size) return undefined;
+		if (openingAskedAt !== undefined && openingAskedAt === inputKey) {
+			return withReason({ok: false, step: id, code: 'opening_not_chosen_by_player',
+				message: 'the opening question was put to the player in this turn and they have not answered it yet; a start_scene is taken only from their reply',
+				fix: `ask the player which opening to start from (details.candidates: ordinal, name and summary) and end this reply; when they answer, call ${id} with the scene of the candidate they chose as start_scene (an answer by position is the candidate with that ordinal)`,
+				details: {field: 'start_scene', reason: 'no_player_reply_since_question', given: requested, candidates: openingsShown},
+				progress: progressLine(steps ?? [], state())}, startedAt);
+		}
+		const creation = stepWithOp('campaign.create'), bound = asString(context.start_scene) ?? campaignOpening;
+		if (creation && completed.has(creation.id) && !completed.has('complete') && bound && !sameOpening(requested, bound) && !remedyOpen(id)) {
+			return withReason({ok: false, step: id, code: 'opening_already_bound',
+				message: `this campaign was created on the opening ${bound}; its opening is not changed once the campaign exists`,
+				fix: `tell the player this table begins at the opening chosen earlier (${bound}); a different opening needs a new table. Do not call ${id} or create-campaign for it again`,
+				details: {field: 'start_scene', reason: 'campaign_opening_bound', given: requested, bound},
+				progress: progressLine(steps ?? [], state())}, startedAt);
+		}
+		return undefined;
+	}
+
 	/** The preparation step's id when it is this source's remedy, for the refusal's fix. */
 	function remedyStep(): string | undefined {
 		const preparation = stepWithOp('module.prepare');
@@ -905,10 +969,10 @@ export default function (pi: ExtensionAPI) {
 	 * anything else `guidance_failed` with the preparer's code as `cause`.
 	 */
 	function guidanceFailure(error: unknown, kind: SetupBlockKind, noticed: boolean, startedAt: number): Record<string, unknown> {
-		const code = errorCode(error), detail = errorText(error), {fix, details} = actionable(error);
+		const code = errorCode(error), detail = errorText(error), {fix, details: raw} = actionable(error);
+		const question = code === 'needs_choice' ? openingCandidates(raw) : undefined;
+		const details = question ? {...raw, candidates: poseOpening(question)} : raw;
 		setupBlock = {kind, ...(code ? {code} : {}), detail, ...(fix ? {fix} : {}), ...(details ? {details} : {}), noticed};
-		const question = code === 'needs_choice' ? openingCandidates(details) : undefined;
-		if (question) poseOpening(question);
 		return withReason({ok: false, code: question ? 'needs_choice' : 'guidance_failed', ...(code ? {cause: code} : {}), message: detail,
 			...(fix ? {fix} : {}), ...(details ? {details} : {})}, startedAt);
 	}
@@ -967,9 +1031,10 @@ export default function (pi: ExtensionAPI) {
 				campaignOpening = asString(asRecord(await bridge.call('module.opening.choose', {module_id: moduleId, scene: chosen, campaign})).start_scene) ?? chosen;
 				prepareOpeningInBackground(campaign,campaignOpening);
 			} catch (error) {
-				const code = errorCode(error) ?? 'internal', {fix, details} = actionable(error);
-				const question = code === 'needs_choice' ? openingCandidates(details) : undefined;
-				if (question) { poseOpening(question); delete context.start_scene; }
+				const code = errorCode(error) ?? 'internal', {fix, details: raw} = actionable(error);
+				const question = code === 'needs_choice' ? openingCandidates(raw) : undefined;
+				const details = question ? {...raw, candidates: poseOpening(question)} : raw;
+				if (question) delete context.start_scene;
 				return withReason({ok: false, step: id, failed_on: 'module.opening.choose', code, message: errorText(error),
 					...(fix ? {fix} : {}), ...(details ? {details} : {}), progress: progressLine(steps ?? [], state())}, startedAt);
 			}
@@ -1028,7 +1093,7 @@ export default function (pi: ExtensionAPI) {
 	 */
 	function refusalLimit(params: Record<string, unknown>, result: Record<string, unknown>): Record<string, unknown> {
 		const code = asString(result.code), step = asString(result.step) || asString(params.step);
-		if (result.ok !== false || !code || !step || ['setup_blocked', 'needs_choice', 'brief_incomplete'].includes(code)) { lastRefusal = undefined; return result; }
+		if (result.ok !== false || !code || !step || ['setup_blocked', 'needs_choice', 'brief_incomplete', 'opening_not_chosen_by_player'].includes(code)) { lastRefusal = undefined; return result; }
 		const key = `${step}\u0000${code}`;
 		lastRefusal = lastRefusal?.key === key ? {key, count: lastRefusal.count + 1} : {key, count: 1};
 		if (lastRefusal.count < SETUP_REFUSAL_LIMIT) return result;
@@ -1102,7 +1167,10 @@ export default function (pi: ExtensionAPI) {
 		}
 		// The remedy step is reopened for the gate (§98 addendum 9): its prerequisites and its source
 		// still apply, and only "already done" is waived.
-		const gated = remedyOpen(id) ? {...state(), completed: new Set([...completed].filter((done) => done !== id))} : state();
+		const requested = id === stepWithOp('module.prepare')?.id ? asString(mergeArgs(raw).start_scene) : undefined;
+		const unauthorized = requested ? openingAuthority(id, requested, startedAt) : undefined;
+		if (unauthorized) return unauthorized;
+		const gated = remedyOpen(id) || rechoosing(requested) ? {...state(), completed: new Set([...completed].filter((done) => done !== id))} : state();
     const verdict = gate(steps, gated, id);
 		if (!verdict.ok) {
 			return { ok: false, step: id, rejected: verdict.reason, allowed: allowedSteps(steps, state()).map((row) => row.id) };
@@ -1126,8 +1194,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			const unchosen = await unchosenOpenings();
 			if (unchosen) {
-				const {candidates, unseen, previous} = unchosen;
-				poseOpening(candidates);
+				const {unseen, previous} = unchosen, candidates = poseOpening(unchosen.candidates);
 				// §225.3: the old choice is not carried into the campaign; the player's answer is recorded again by the preparation step.
 				if (previous) delete context.start_scene;
 				const remedy = stepWithOp('module.prepare')?.id ?? 'the preparation step';
@@ -1145,6 +1212,12 @@ export default function (pi: ExtensionAPI) {
 		const preparing = step.ops.some((op) => op.method === 'module.prepare');
 		const chosen = preparing ? asString(args.start_scene) : undefined, previousChoice = context.start_scene;
 		if (chosen) {
+			// §14.19.10: a different opening chosen before the campaign exists drops what was prepared for the old one.
+			if (openingsOffered.size && !sameOpening(chosen, asString(previousChoice)) && !completed.has(stepWithOp('campaign.create')?.id ?? '')) {
+				delete context.guidance_key;
+				characterGuidance = undefined;
+				openingGuidanceOwed = undefined;
+			}
 			context.start_scene = chosen;
 			openingQuestion = undefined;
 		}
@@ -1161,7 +1234,7 @@ export default function (pi: ExtensionAPI) {
 					pi.sendMessage({customType:'coc-setup-opening',content:introduction,display:true,details:{kind:'setup-opening'}},{triggerTurn:false});
 					outcome.opening_shown='The host has shown details.introduction verbatim. Do not repeat or translate it; wait for the player to choose an opening.';
 				}
-				poseOpening(question);
+				outcome.details = {...asRecord(outcome.details), candidates: poseOpening(question)};
 				// A scene the book does not offer is no choice: the one this call brought is not kept.
 				if (chosen && context.start_scene === chosen) context.start_scene = previousChoice;
 			} else if (preparing && asString(context.start_scene) && completed.has(id)) {
@@ -1301,6 +1374,7 @@ export default function (pi: ExtensionAPI) {
 			brief_holds: setupSlots.length > 0 && draftRevision === undefined && computeMove(setupSlots, setupNotes, guidedCap).move === 'ask',
 			sources,
 			openings: openingQuestion ? openingQuestion.map(asRecord).filter(row => asString(row.scene)).map(row => ({scene: asString(row.scene),
+				...(typeof row.ordinal === 'number' ? {ordinal: row.ordinal} : {}),
 				...(asString(row.name) ? {name: asString(row.name)} : {}), ...(asString(row.summary) ? {summary: asString(row.summary)} : {})})) : null,
 			library,
 			catalog,
@@ -1498,14 +1572,18 @@ export default function (pi: ExtensionAPI) {
     const guidanceFailed=async(error:unknown)=>{
       // What the player is told is the campaign's sentence; the English message the preparation
       // threw stays in it as the detail, which is what a log and a bug report need (contract §23).
-      const detail=errorText(error),code=errorCode(error),{fix,details}=actionable(error);
+      const detail=errorText(error),code=errorCode(error),{fix,details:raw}=actionable(error);
+      const question=code==='needs_choice'?openingCandidates(raw):undefined;
+      const numbered=question?poseOpening(question):undefined,details=numbered?{...raw,candidates:numbered}:raw;
       setupBlock={kind:'guidance_at_turn_start',...(code?{code}:{}),detail,...(fix?{fix}:{}),...(details?{details}:{}),noticed:true};
-      const question=code==='needs_choice'?openingCandidates(details):undefined;
-      if(question) {
+      if(numbered) {
         // §14.19: a missing opening is the guide's question, not a failure: no error notice, the guide's
         // text stays on screen, and the step that records the answer stays open (§98 addendum 9).
-        poseOpening(question);
-		return {systemPrompt:base+'\nThis book has more than one opening and this campaign has none recorded yet. Ask the player which one to start from, naming each by its name and what it is about (the list below). When they answer, call setup '+(remedyStep()??'prepare-module')+' with the exact chosen candidate.scene handle as start_scene: it records the choice and prepares the module guidance. Do not translate that handle. Until then do not invent a prologue or create an investigator.\nOpenings: '+JSON.stringify(question)};
+        // §14.19.10: asked for the first time this turn, the player has not seen it yet; asked before, this message may answer it.
+        const ask=openingAskedAt===inputKey
+          ?'Ask the player which one to start from, offering each by its ordinal, its name and what it is about (the list below), and end your reply there: the choice is the player\'s, and a start_scene sent in this turn is refused. When they answer, call setup '
+          :'The player was asked which one to start from. If their message answers it, call setup ';
+		return {systemPrompt:base+'\nThis book has more than one opening and this campaign has none recorded yet. '+ask+(remedyStep()??'prepare-module')+' with the exact chosen candidate.scene handle as start_scene: it records the choice and prepares the module guidance; an answer by position names the candidate with that ordinal. Otherwise ask, offering each opening by its ordinal, its name and what it is about. Do not translate that handle. Until then do not invent a prologue or create an investigator.\nOpenings: '+JSON.stringify(numbered)};
       }
       try {ctx?.ui.notify((await speaking()).line('setup_guidance_failed',{detail}),'error');}
       catch {ctx?.ui.notify(detail,'error');}

@@ -63,7 +63,8 @@ export function playerReason(facts: ReasonFacts): string | undefined {
 		return guidanceReason(cause);
 	}
 	if (code === "guidance_failed") return guidanceReason(cause);
-	if (code === "needs_choice") return OPENING_CHOICE;
+	if (code === "needs_choice" || code === "opening_not_chosen_by_player") return OPENING_CHOICE;
+	if (code === "opening_already_bound") return "This table was already set up to begin at the opening chosen earlier, and that cannot be changed on this table now; to begin somewhere else, start a new table.";
 	if (reason === "reading_timeout")
 		return `${READING[purpose ?? ""] ?? "The book is still being read."}${elapsed(facts.minutes)} Nothing is needed from you now: you can wait, and your next message checks on it again.`;
 	if (reason === "reading_failed") return "Reading this part of the book did not work out this time. It is being tried again, and nothing you chose is lost.";

@@ -23,8 +23,13 @@ say nothing about it.
 
 Some books can begin in more than one place. When a result answers `needs_choice`
 with candidates, ask the player which opening to start from, offering each by its
-name and what it is about, and wait for their answer. Then call `prepare-module`
-with that candidate's `scene` as `start_scene`. The host records the choice the
+`ordinal`, its name and what it is about, in ordinal order, and end your reply there:
+the choice is the player's, never yours, even when one opening looks likelier or a
+tool result already prepared one. Only in the turn of their answer call
+`prepare-module` with the chosen candidate's `scene` as `start_scene`; an answer
+by position ("the first one") names the candidate with that `ordinal`. A
+`start_scene` sent before the player has answered is refused
+(`opening_not_chosen_by_player`). The host records the choice the
 moment `prepare-module` receives it and carries it into `create-campaign`; while the
 book is still being read, call `prepare-module` again without repeating the choice.
 Never call `create-campaign` before the player has chosen: the host refuses it.
