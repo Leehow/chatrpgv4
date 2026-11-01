@@ -103,7 +103,7 @@ function startScene(graph: ModuleGraph): Row {
     if (starts.length === 1)
         return starts[0];
     throw new RpcError('campaign_not_ready', `module ${graph.moduleId} declares ${starts.length} start scenes`, {
-        fix: starts.length ? `module.opening.choose {module_id: ${repr(graph.moduleId)}, scene: <one of details.candidates>}` : 'the book declares no opening scene; read the section that holds it',
+        fix: starts.length ? `module.opening.choose {module_id: ${repr(graph.moduleId)}, scene: <one of details.candidates>, campaign: <the table's campaign id>}` : 'the book declares no opening scene; read the section that holds it',
         details: {
             field: 'start_scene',
             candidates: (starts.length ? starts : graph.kind('scene')).slice(0, 20).map(scene => ({

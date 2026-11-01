@@ -2158,7 +2158,7 @@ build.jsonl                构建遥测：每 section 每轮 {section_id, round,
 真桌证据：《冰冷的收获》抽出两个开场场景，`opening_check` 不猜，`module.json` 停在 `{"opening_ready": false, "missing": ["start_scene_ambiguous:scene-nkvd-briefing-opening1,scene-nkvd-briefing-opening2"]}`，而模组已经 `installed`、可玩性 `playable`。建卡第五步只回了一句「还没就绪」，模型于是**连着调了 216 次 `build-opening`**（00:59:53–01:08:20），玩家的每一句都被 `Agent is already processing` 顶回，直到驾驭器杀进程。**哪个是开场是书的问题，内核不猜；但拒绝里必须有下一步。**
 
 - **内核给候选。** `opening_check` 在只差「哪个是开场」时多带一个 `choice`：`{"field": "start_scene", "reason": "start_scene_ambiguous", "candidates": [{"node_id", "scene", "name"}], "method": "module.opening.choose", "ask": "<一句英文指令>"}`；`missing` 里那条字符串照旧（它是证据）。别的原因（缺场景、邻域断裂）是构建问题，不是问题句，没有 `choice`。`module.status` 与 `module.assemble` 的 `opening` 都带它。
-- **`module.opening.choose {module_id, scene}`。** `scene` 只能是书自己声明的候选之一（按 node_id / 场景 handle / 名字归一化匹配）；不是候选就报 `needs_choice`，`details.candidates` 给全部候选。选中的写进 `module.json.opening_choice = {start_scene, at}`，然后重新装配一次。starter 的图是内容的逐字节副本，这个方法对它报 `invalid_params` 并说明去改内容图。
+- **`module.opening.choose {module_id, scene}`。** `scene` 只能是书自己声明的候选之一（按 node_id / 场景 handle / 名字归一化匹配）；不是候选就报 `needs_choice`，`details.candidates` 给全部候选。选中的写进 `module.json.opening_choice = {start_scene, at}`，然后重新装配一次。starter 的图是内容的逐字节副本，这个方法对它报 `invalid_params` 并说明去改内容图。（§14.19.10 修订，2026-11-01：不带 `campaign` 时只能确认单开场书的唯一开场（记为 `of: "book"`）；多开场的书报 `invalid_params`，`details.reason: "campaign_required"`。）
 - **选择应用在两个机器自己的位置上**：图级 `entry_scene_ids = [选中]`（可玩性检查读它）与每个场景 `runtime_projection.record.is_start`（`ModuleGraph.start_scene()` 走它）。书自己写的 `properties.is_entrance` 一个字不动——那是证据，不是选票。选择存在 `module.json` 里，**每次装配重放**，所以后来的深挖长了图也不会把它抹掉。
 - **`ModuleGraph.start_scene()` 的拒绝带路。** `campaign_not_ready`（声明了 N 个开场）现在带 `fix`（指向 `module.opening.choose`）与 `details.candidates`。
 - **建卡第五步 `build-opening` 三个答案、一次沉默**（`extensions/onboarding`）：开场已定 → 这一步过；书已读完而开场歧义 → **当轮返回** `ok:false`，带 `needs: ["start_scene"]` 与候选（含名字），并说明「等下去不会好」；模组已 `installed` 且可玩性 `playable` 而开场仍未定 → 以 `ok:true, opening_ready:false, opening_pending:true` 收尾（「已就绪，开场待定」），建卡照常往下走。候选**只交一次**：同一本书第二次不带 `start_scene` 再来，直接走「收尾」那一支——所以这一步最多问一轮，永远打不了转。书还没读完时才是沉默：起构建、等总线，超时那一支不变。步表 `build-opening` 因此多一个可选参数 `start_scene`。
@@ -2242,7 +2242,7 @@ The guide never writes the prologue: `prompts/setup.md` and the prologue label s
 **14.19.1 Recorded when made.** The onboarding host records a `start_scene` in its setup context the moment the preparation step (the step whose op is `module.prepare`, `prepare-module` in today's table) receives one, before any reading runs; a later preparation call that leaves it out is filled from the record (`fillParams`' same-named fallback), so a reading that outlasts one call, and the call that rejoins it, keep the choice. The newest choice received wins. A preparation that answers `needs_choice` although a scene was given (the book does not offer it) does not keep that scene. The record is the setup process's until a campaign exists: the library `module.json` is never written with a player's opening, because other tables read the library (§22.9, fast-guided onboarding). Once a campaign exists the choice is the campaign's:
 
 - `create-campaign` passes the recorded opening to `campaign.create` as `start_scene`, carried by the host, not re-typed by the guide; the kernel checks it names an authored opening and pins it as `opening_scene` (§22.9, unchanged). The host learns the pinned opening from the returned record (`campaign.opening_scene`) or, on a resumed setup, from `setup.steps` `state.start_scene`.
-- A campaign that exists with no pinned opening -- one created before this section, like `masks-nyarlathotep` -- gets it when the preparation step next succeeds: `module.opening.choose {module_id, scene, campaign}`, scoped to that campaign (its first private write forks the module, §22.6; `opening_choice` is recorded there and every later `startScene()` of that campaign resolves to it). Never unscoped. A refusal of that pin comes back actionable; `needs_choice` there drops the recorded scene and asks again.
+- A campaign that exists with no pinned opening -- one created before this section, like `masks-nyarlathotep` -- gets it when the preparation step next succeeds: `module.opening.choose {module_id, scene, campaign}`, scoped to that campaign (its first private write forks the module, §22.6; `opening_choice` is recorded there and every later `startScene()` of that campaign resolves to it). Never unscoped: the kernel refuses an unscoped choice among several openings (§14.19.10, "Unscoped `module.opening.choose`"). A refusal of that pin comes back actionable; `needs_choice` there drops the recorded scene and asks again.
 
 **14.19.2 A missing opening is a question.** On a book that declares more than one opening, no selected opening -- or one that names none of them -- is answered `needs_choice` with `details: {field: "start_scene", candidates}` and a `fix` naming the preparation step and `start_scene`, never `preparation_failed`. This covers the reading service's `prepare` (as before), guidance preparation (`extensions/module/character-guidance.ts` `selectedOpeningScene`: the candidates are the kernel's `opening.choice.candidates` in `module.json`; decided before an attempt folder exists), and `create-campaign` (14.19.3). `preparation_failed` stays for a preparation that really failed, including a single-opening book whose opening cannot be found. The answer survives every projection to the guide: the `create-campaign` result (`code: "needs_choice"`, `cause`, `fix`, `details`; any other guidance failure keeps `code: "guidance_failed"` with the preparer's `cause`, `fix` and `details`), the block the failure raises, and the refusal every call gets while that block stands (§98 addendum 9). A missing opening is not announced as a failure: no error notice, and the guide's text -- its question -- is not dropped at `message_end`. At turn start the guide's prompt says there is no opening yet, lists the candidates, and names the step that records the answer.
 
@@ -2370,8 +2370,7 @@ while its campaign's `opening_scene` was entry 1; two cs-1101b forks recorded en
   with a `campaign_scope`, and on the library only when it is the book's own (`of: "book"`, below). Any other library
   `opening_choice` is a table's, and every reader ignores it -- the graph's replay (`assembleVisual`), the reference
   publication's prior choice and readiness focus, the opening read's default focus, the handle job's seeds -- and the
-  library's next `writeModule` drops it, as it drops one an unscoped `module.opening.choose` sets (§14.19.1: never
-  unscoped). The library's task source revision leaves it out, so a fork seeded with its own opening still measures the
+  library's next `writeModule` drops it. An unscoped `module.opening.choose` among several openings is refused (below). The library's task source revision leaves it out, so a fork seeded with its own opening still measures the
   library's origin (§184).
 - **The book's sole entry is not a table's choice** (§14.19.8 rule 1). A reference with one entry, published with no
   `start_scene` asked, records that entry on the library as `opening_choice {start_scene, at, of: "book"}`; the library
@@ -2392,6 +2391,25 @@ before its campaign records none, and the library's next write drops the stored 
 a one-entry reference published without `start_scene` keeps its entry on the library (marked `of: "book"`, replayed,
 seeded into a fork with no campaign opening, kept across writes), while an unmarked choice of the same scene is not cloned
 and is dropped on the next write.
+
+**Unscoped `module.opening.choose` (2026-11-01).** The only production caller, the onboarding host's preparation step
+(`extensions/onboarding/index.ts`), always passes `campaign` (§14.19.1); the reading service never stores a player's opening
+on the library. An unscoped call reaches the shared library, which holds no table's opening, yet it narrowed the library
+graph's entry (`applyOpeningChoice` + `writeGraph`) while its `opening_choice` was dropped on write -- a table's opening leaking
+into the library's graph, and a choice that silently did not stick. Now, on the library (metadata with no `campaign_scope`):
+
+- a book that declares more than one opening refuses it before anything is written: `invalid_params` with
+  `details: {reason: "campaign_required", field: "campaign", candidates}` and a `fix` naming
+  `module.opening.choose {module_id, scene, campaign}`. A scene that is no opening still answers `needs_choice` first.
+- a book with one opening may confirm it: the choice is that sole entry, recorded as `opening_choice {start_scene, at,
+  of: "book"}` -- the book's fact, kept like the reference publication's.
+
+`campaign_not_ready`'s `fix` (`ModuleGraph.start_scene()`, `assertPlayable`) and `opening_check.choice.ask` name the
+campaign. A library opening read that needs a scene among several takes it as its `focus`. Tests:
+`tests/integration/world-visual-reading.test.ts` (`test_reviewed_skeleton_exposes_choices_without_authorizing_play`: the
+unscoped choice among two is refused with the candidates, the graph keeps both entrances, a focused opening read names
+`scene-first`), `tests/extension/second-opening-candidates.test.mjs` (refused unscoped; scoped to the campaign it resolves
+the second briefing).
 
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
