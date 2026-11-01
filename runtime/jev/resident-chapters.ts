@@ -11,6 +11,7 @@
 import {createHash} from 'node:crypto';
 import type {DecisionBatch, DecisionQuestion, DecisionResult, Json, ReadSet, ScopeBinding} from './contracts.ts';
 import type {DecisionPort} from './decision-port.ts';
+import type {RetryPolicy} from './decision-adapter.ts';
 import {JEV_MODEL, packDecisionBatch, PackingError} from './question-packing.ts';
 import {TaskLease} from './task-context.ts';
 
@@ -21,6 +22,14 @@ export const RESIDENT_AT = 0.5;
 export const RESIDENT_PAGE_CHARS = 1000;
 /** A chapter of at most this many pages is shown whole; a longer one is sampled and asked page by page. */
 export const RESIDENT_WHOLE_UP_TO = 6;
+/**
+ * §276.5: each question's transport retry, inside the whole book's deadline (`timeoutMs`). Audit 1101: the unanswered
+ * questions were connection failures (undici UND_ERR_CONNECT_TIMEOUT after 10 s on one of the first parallel connections,
+ * Jev never answered), which the adapter's default (no retry) turned into `service_error` and the whole verdict into none.
+ * Two more attempts, 250 ms then 500 ms apart; a network error or an attempt with no response in 8 s is retried, a 429,
+ * 503 or 529 waits its Retry-After; a wait past the deadline is not taken, and the question stays unanswered.
+ */
+export const RESIDENT_RETRY: RetryPolicy = {maxRetries: 2, backoffInitialMs: 250, backoffMaxMs: 2000, attemptTimeoutMs: 8000, retryNetwork: true, retryTimeout: true};
 
 export interface AskedPage {page: number; text: string}
 export interface AskedChapter {name: string; first: number; last: number; pages: AskedPage[]}
@@ -32,6 +41,8 @@ export interface ResidentAnswer {
   /** The merged verdict per chapter; all false when anything went unanswered. */
   resident: boolean[];
   failed?: string;
+  /** The first unanswered question's last HTTP status, or its transport code (`network_error`, `timeout`). */
+  failedStatus?: number | string;
   requests: number;
   usage: {inputTokens: number; outputTokens: number};
 }
@@ -133,7 +144,7 @@ export async function askResidentChapters(input: {moduleId: string; sourceSha: s
   const scope: ScopeBinding = {owner: RESIDENT_FAMILY, audience: 'keeper'};
   const readSet: ReadSet = [{kind: 'source', resource: `pdf:${input.moduleId}`, revision: input.sourceSha},
     {kind: 'family', resource: RESIDENT_FAMILY, revision: RESIDENT_VERSION}, {kind: 'model', resource: `${RESIDENT_FAMILY}:jev`, revision: JEV_MODEL}];
-  const deadlineAt = Date.now() + input.timeoutMs, failures: string[] = [];
+  const deadlineAt = Date.now() + input.timeoutMs, failures: string[] = [], statuses: Array<number | string | undefined> = [];
   /** One question in its own request; undefined when it went unanswered. */
   const ask = async (state: Json, question: DecisionQuestion): Promise<number | undefined> => {
     const batch: DecisionBatch = {id: `resident-chapters:${digest([input.sourceSha, question.key, state])}`, model: JEV_MODEL, family: RESIDENT_FAMILY,
@@ -149,9 +160,9 @@ export async function askResidentChapters(input: {moduleId: string; sourceSha: s
       out.usage.inputTokens += result.usage?.inputTokens ?? 0; out.usage.outputTokens += result.usage?.outputTokens ?? 0;
       const answer = result.answers[question.key];
       if (answer?.status === 'answered' && answer.type === 'noul' && Number.isFinite(answer.noul)) return answer.noul;
-      failures.push(result.failure?.code ?? (result.status === 'complete' ? 'no_answer' : result.status));
+      failures.push(result.failure?.code ?? (result.status === 'complete' ? 'no_answer' : result.status)); statuses.push(result.failure?.status);
     } catch (error) {
-      failures.push(error instanceof PackingError ? error.failure : 'resident_chapters_owner_error');
+      failures.push(error instanceof PackingError ? error.failure : 'resident_chapters_owner_error'); statuses.push(undefined);
     } finally { lease?.close(); }
     return undefined;
   };
@@ -164,7 +175,7 @@ export async function askResidentChapters(input: {moduleId: string; sourceSha: s
     const answered = noul !== undefined && story.every(value => value !== undefined);
     return answered && noul! >= RESIDENT_AT && story.every(value => value! < RESIDENT_AT);
   }));
-  if (failures.length) out.failed = failures[0];
+  if (failures.length) { out.failed = failures[0]; if (statuses[0] !== undefined) out.failedStatus = statuses[0]; }
   else out.resident = merged;
   return out;
 }

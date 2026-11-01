@@ -50,7 +50,7 @@ import type {TaskProviderBudget} from '../../runtime/jev/provider-budget.ts';
 import {measuredPageCost, readingJobStage, readingStageBudget, type StageBudget} from '../../runtime/jev/reading-stage-budget.ts';
 import {readingImageBudget, readingReviewBudget, windowPlacesBudget, type WindowPlacesBudget} from '../../runtime/jev/host-budgets.ts';
 import {createDecisionAdapter} from '../../runtime/jev/decision-adapter.ts';
-import {askResidentChapters, RESIDENT_FAMILY, RESIDENT_QUESTION_DIGEST, RESIDENT_VERSION, residentPages} from '../../runtime/jev/resident-chapters.ts';
+import {askResidentChapters, RESIDENT_FAMILY, RESIDENT_QUESTION_DIGEST, RESIDENT_RETRY, RESIDENT_VERSION, residentPages} from '../../runtime/jev/resident-chapters.ts';
 import {runWindowPlaces, WINDOW_PLACES_FAMILY} from '../../runtime/jev/window-places.ts';
 /**
  * `allowanceMs` (contract §22.4.3, SL-36): the foreground allowance of an in-turn source consultation. Past it `ensure`
@@ -621,13 +621,16 @@ export class ReadingService implements ReadingBridge {
 			try { for (let at = 0; at < wanted.length; at += 32) read.push(...await this.sourcePages(mid, wanted.slice(at, at + 32), { transcribe: false }, signal)); }
 			catch { read.length = 0; }
 			const pagesOf = (chapter: Chapter) => read.filter(row => row.page >= chapter.first && row.page <= chapter.last).map(row => ({ page: row.page, text: row.text }));
+			// §276.5: each question retried within the book's deadline (RESIDENT_RETRY); retries are counted for telemetry.
+			let retries = 0;
 			const asked = await askResidentChapters({ moduleId: mid, sourceSha: sha, timeoutMs: 30_000, signal,
-				chapters: book.chapters.map(chapter => ({ ...chapter, pages: pagesOf(chapter) })) }, createDecisionAdapter({ env: this.deps.env ?? process.env, maxConcurrency: 4 }));
+				chapters: book.chapters.map(chapter => ({ ...chapter, pages: pagesOf(chapter) })) }, createDecisionAdapter({ env: this.deps.env ?? process.env, maxConcurrency: 4,
+				retryPolicies: { [RESIDENT_FAMILY]: RESIDENT_RETRY }, trace: event => { if (event.kind === "retry") retries++; } }));
 			const resident = book.chapters.filter((_, index) => asked.resident[index]);
 			this.note({ lane: "reading", event: "resident_chapters", module_id: mid, source_sha256: sha, family_version: RESIDENT_VERSION, resident: resident.map(chapter => chapter.name),
 				nouls: book.chapters.map((chapter, index) => [chapter.name, asked.nouls[index]]),
 				story_pages: book.chapters.flatMap((chapter, index) => asked.storyPages[index].length ? [[chapter.name, asked.storyPages[index]]] : []),
-				requests: asked.requests, ...(asked.failed ? { failed: asked.failed } : {}), usage: asked.usage });
+				requests: asked.requests, retries, ...(asked.failed ? { failed: asked.failed, ...(asked.failedStatus !== undefined ? { failed_status: asked.failedStatus } : {}) } : {}), usage: asked.usage });
 			// A verdict with any question unanswered sets no resident chapter at all (§276.5), and is asked again next session:
 			// not at the next read of this one (audit 1101: a Jev service_error re-asked the whole book at every book read).
 			if (asked.failed) return [];

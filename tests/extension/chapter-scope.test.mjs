@@ -12,7 +12,9 @@ import {build} from 'esbuild';
 import {playtestScratch} from './playtest-scratch.mjs';
 const temp=playtestScratch('chapter-scope','suite-');
 await build({stdin:{contents:[`export * from './runtime/chapter-scope.ts';`,`export {headingEntries} from './extensions/module/heading-chapters.ts';`,
- `export {ReadingService} from './extensions/module/reading-service.ts';`].join('\n'),
+ `export {ReadingService} from './extensions/module/reading-service.ts';`,
+ `export {askResidentChapters, RESIDENT_RETRY, RESIDENT_FAMILY} from './runtime/jev/resident-chapters.ts';`,
+ `export {createDecisionAdapter} from './runtime/jev/decision-adapter.ts';`].join('\n'),
  resolveDir:resolve(import.meta.dirname,'../..'),sourcefile:'chapter-scope-api.ts',loader:'ts'},outfile:join(temp,'api.mjs'),bundle:true,platform:'node',format:'esm',
  packages:'external',logLevel:'silent'});
 const api=await import(pathToFileURL(join(temp,'api.mjs')).href);
@@ -399,3 +401,62 @@ test('§276.2: a kept file without the format version or a known source is void;
  assert.deepEqual([(await versioned.reading.chapterScope('blood-road','c1')).name,(await versioned.reading.chapterScope('blood-road','c1')).resolved],['Intro','kept']);
  versioned.reading.dispose();
 }));
+
+/**
+ * §276.5 retry (audit 1101): the unanswered questions were connection failures (undici UND_ERR_CONNECT_TIMEOUT), which the
+ * adapter's default turned into `service_error` and the whole verdict into none. A fake Jev transport: `plan(key, n)` says
+ * what the n-th attempt of a question gets: 'ok', a status number, 'reset' (a failed connection) or 'hang'.
+ */
+function flakyJev(plan,fetches){
+ return async(_url,init)=>{const sent=JSON.parse(init.body),key=Object.keys(sent.questions)[0];fetches[key]=(fetches[key]??0)+1;
+  const what=plan(key,fetches[key]);
+  if(what==='reset')throw new TypeError('fetch failed',{cause:{code:'UND_ERR_CONNECT_TIMEOUT'}});
+  if(what==='hang')return new Promise((_,reject)=>init.signal.addEventListener('abort',()=>reject(init.signal.reason),{once:true}));
+  if(typeof what==='number')return new Response('busy',{status:what,headers:{'retry-after-ms':'5'}});
+  return Response.json({model:sent.model,usage:{input_tokens:10,output_tokens:2},answers:{[key]:{type:'noul',noul:key==='resident_c0'?0.9:0.1}}});};
+}
+const askedBook=[{name:'Background',first:1,last:1,pages:[{page:1,text:'a'}]},{name:'Story',first:2,last:3,pages:[{page:2,text:'b'},{page:3,text:'c'}]}];
+const residentAsk=(fetcher,timeoutMs=30_000)=>api.askResidentChapters({moduleId:'m',sourceSha:SHA,timeoutMs,chapters:askedBook},
+ api.createDecisionAdapter({apiKey:'deterministic',fetcher,maxConcurrency:4,retryPolicies:{[api.RESIDENT_FAMILY]:api.RESIDENT_RETRY}}));
+
+test('§276.5: a failed connection or a 529 is retried within bound, and the verdict is whole',async()=>{
+ const fetches={};
+ const asked=await residentAsk(flakyJev((key,n)=>key==='resident_c0'&&n===1?'reset':key==='resident_c1'&&n<3?529:'ok',fetches));
+ assert.equal(asked.failed,undefined);assert.deepEqual(asked.resident,[true,false]);
+ assert.deepEqual(fetches,{resident_c0:2,resident_c1:3},'a reset once, a 529 twice, each answered on the next attempt');
+});
+
+test('§276.5: retries are bounded; a question still refused is unanswered, with its status, and nothing is resident',async()=>{
+ const fetches={};
+ const asked=await residentAsk(flakyJev(key=>key==='resident_c1'?529:'ok',fetches));
+ assert.equal(fetches.resident_c1,1+api.RESIDENT_RETRY.maxRetries,'three attempts, no more');
+ assert.equal(asked.failed,'rate_limited');assert.equal(asked.failedStatus,529);
+ assert.deepEqual(asked.resident,[false,false],'a partial verdict sets no resident chapter');
+ const reset={},down=await residentAsk(flakyJev(key=>key==='resident_c0'?'reset':'ok',reset));
+ assert.equal(reset.resident_c0,3);assert.equal(down.failed,'service_error');assert.equal(down.failedStatus,'network_error');
+});
+
+test('§276.5: the whole book\'s deadline holds: an attempt with no response ends at it, and the question is unanswered',async()=>{
+ const fetches={},began=Date.now();
+ const asked=await residentAsk(flakyJev(key=>key==='resident_c1'?'hang':'ok',fetches),300);
+ assert.ok(Date.now()-began<2000,'ended by the deadline, not the 8 s attempt timeout');
+ assert.equal(asked.failed,'timeout');assert.deepEqual(asked.resident,[false,false]);
+});
+
+test('§276.5: the reading service asks with the retry, and notes the retries and a failure\'s status',async()=>lean(async()=>{
+ const oldFetch=globalThis.fetch,notes=[];
+ try{
+  const fetches={};globalThis.fetch=flakyJev((key,n)=>n===1&&key==='resident_c1'?'reset':'ok',fetches);
+  const {reading}=await service(playtestScratch('chapter-scope','resident-retry-'),{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},notes,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  const scope=await reading.chapterScope('blood-road','c1');reading.dispose();
+  const note=notes.find(row=>row.event==='resident_chapters');
+  assert.equal(note.failed,undefined);assert.equal(note.retries,1);assert.equal(fetches.resident_c1,2);
+  assert.ok(Array.isArray(scope.resident),'answered on the retry: the verdict stands');
+  const down={},more=[];globalThis.fetch=flakyJev(key=>key==='resident_c1'?503:'ok',down);
+  const {reading:again}=await service(playtestScratch('chapter-scope','resident-retry-down-'),{scene:'Diner counter',graph:{'Diner counter':[6,9,10]},notes:more,env:{...process.env,TYPESAFE_API_KEY:'deterministic'}});
+  assert.equal((await again.chapterScope('blood-road','c1')).resident,undefined);again.dispose();
+  const failed=more.find(row=>row.event==='resident_chapters');
+  assert.equal(failed.failed,'service_error');assert.equal(failed.failed_status,503);assert.equal(failed.retries,2);
+ }finally{globalThis.fetch=oldFetch;}
+}));
+
