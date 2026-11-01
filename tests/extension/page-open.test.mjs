@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdir,readFile,writeFile} from 'node:fs/promises';
+import {mkdir,readFile,rm,writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {promisify} from 'node:util';
@@ -18,7 +18,7 @@ import {DecisionContent,openingPassages} from '../../runtime/decision-content.ts
 
 const ROOT=resolve(import.meta.dirname,'../..'),evidence=playtestScratch('page-open','direct-');
 await build({stdin:{contents:[['modules/index',['createModuleRuntime']],['context',['createKernelContext']],['locks',['createAdvisoryLocks']],
-  ['modules/campaign-scope',['ensureCampaignModule','moduleContext']],['modules/store',['ModuleStore']],['modules/source-state',['sourceState']],['modules/visual',['assembleVisual']]]
+  ['modules/campaign-scope',['ensureCampaignModule','moduleContext']],['modules/store',['ModuleStore']],['modules/source-state',['sourceState']],['modules/visual',['assembleVisual']],['modules/opening-choice',['anchorForkOpening']]]
   .map(([path,names])=>`export {${names.join(',')}} from ${JSON.stringify(join(ROOT,'kernel-ts',path+'.ts'))};`).join('\n'),resolveDir:ROOT,sourcefile:'page-open-api.ts',loader:'ts'},
   outfile:join(evidence,'api.mjs'),bundle:true,packages:'external',platform:'node',format:'esm',target:'node22',logLevel:'silent'});
 const api=await import(pathToFileURL(join(evidence,'api.mjs')).href);
@@ -267,6 +267,18 @@ test('§14.19.10: a fork made before the anchor holds another opening: the campa
   stored.opening_choice={start_scene:second,at:'2026-11-01T03:30:01Z'};
   await api.sourceState(f.context.stateRoot).update(fork.moduleDir(f.mid),{metadata:stored},f.context.locks);
   assert.equal((await fork.module(f.mid)).opening_choice.start_scene,second);
+  // The guard is advisory: a fork whose private module directory is gone is returned as stored, never thrown on.
+  await writeFile(join(dir,'campaign.json'),JSON.stringify({id:campaign,module_id:f.mid,opening_scene:'own-opening',setup:{node_handles:{}}}));
+  await rm(fork.moduleDir(f.mid),{recursive:true,force:true});
+  const gone=await fork.module(f.mid).catch(error=>error);
+  assert.notEqual(gone?.code,'internal',`${gone?.message}`);
+  // Directly: a scene lookup that dies, or a campaign directory that is absent, leaves the metadata unchanged.
+  const meta={id:f.mid,campaign_scope:'c-none',opening_choice:{start_scene:second,at:'x'}};
+  await api.anchorForkOpening(f.context,meta,async()=>{throw new Error('ENOENT');});
+  assert.deepEqual(meta.opening_choice,{start_scene:second,at:'x'});
+  const meta2={id:f.mid,campaign_scope:campaign,opening_choice:{start_scene:second,at:'x'}};
+  await api.anchorForkOpening(f.context,meta2,async()=>{throw new Error('ENOENT: realpath');});
+  assert.deepEqual(meta2.opening_choice,{start_scene:second,at:'x'});
 });
 
 test('§14.19.10: a single-entry book published without start_scene keeps its sole entry in the library; a stale table choice beside it is ignored',async t=>{
