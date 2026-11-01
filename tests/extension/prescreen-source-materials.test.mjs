@@ -75,6 +75,28 @@ test('module source material snapshot enumerates integrity-checked accepted answ
   assert.equal(answer.evidence.record.answer,answer.answer);assert.equal(answer.evidence.accepted_revision,answer.evidence.revision);
 });
 
+test('§276.3: the continuation reads only the chapter\'s pages (with resident chapters\'); a page outside is not offered and is refused',async t=>{
+  const f=await fixture(t),snapshot=await f.call('module.source.materials.snapshot',{campaign:'c1',module_id:f.moduleId,answer_limit:8});
+  const source={home:f.home,sourceInfo:({pdf})=>api.sourceInfo(pdf),sourceSearch:({pdf,...options},signal)=>api.sourceSearch(pdf,options,signal),
+    sourceText:({pdf,...options},signal)=>api.sourceText(pdf,options,signal)};
+  const input={call:f.call,campaign:'c1',moduleId:f.moduleId,scope:{owner:'campaign:c1',campaign:'c1',worldline:'main',loop:0,audience:'keeper'},
+    query:'When is the signal heard?',capsule:{known:{lead:{source_refs:[{source_id:`pdf:${f.moduleId}`,pdf_index:2}]}}},
+    source,signal:new AbortController().signal,budget:{deadlineAt:Date.now()+5000,candidateBytes:64*1024,materialBytes:32*1024,maxNativePages:1},snapshot};
+  // Current chapter is page 3; page 1 is a resident chapter; pages 2 and 4 are outside both.
+  const scoped=await api.preparePrescreenSources({...input,chapter:{spans:[{first:3,last:3},{first:1,last:1}]}});
+  assert.deepEqual(scoped.coverage.native.unmaterialized_pages.filter(page=>![1,3].includes(page)),[],'no page outside the chapter and resident chapters is left to read on');
+  for(const page of [2,4])await assert.rejects(scoped.readNativePages([page],new AbortController().signal),/invalid_native_continuation/);
+  await assert.rejects(scoped.readNativePages([1,2],new AbortController().signal),/invalid_native_continuation/);
+  if(scoped.coverage.native.unmaterialized_pages.includes(1)){
+    const resident=await scoped.readNativePages([1],new AbortController().signal);
+    assert(resident.some(row=>row.data.page===1),'a resident chapter page is still readable');
+  }
+  // No chapter scope: today's behaviour, every page is open to the continuation.
+  const whole=await api.preparePrescreenSources(input);
+  assert(whole.coverage.native.unmaterialized_pages.some(page=>![1,3].includes(page)),'unscoped: pages outside any chapter stay offered');
+  await api.closeSourceDocuments();
+});
+
 test('source provider supplies reviewed answers and exact native excerpts beyond literal matches or first pages',async t=>{
   const f=await fixture(t),snapshot=await f.call('module.source.materials.snapshot',{campaign:'c1',module_id:f.moduleId,answer_limit:8});
   const source={home:f.home,

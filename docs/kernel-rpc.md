@@ -54356,6 +54356,14 @@ chapter source (`bookmarks`, `headings`, `none`).
 - **Jev locate** (§196.7): only passages on chapter pages are cards; **source materials** of the prescreen search and pick
   pages inside the chapter only. A missing chapter scope is not "the whole book": the provider reports
   `chapter_unavailable` and offers no book passages.
+- **Pointer rows and the prescreen's continuation (owner 2026-11-01, audit 1101).** Two channels delivered pages outside the
+  current chapter and the resident chapters. (1) The pointer rows' automatic material (`bookPassages`, and `bookPlans`' plans
+  and evidence): a passage whose page, a plan citing any page, or evidence standing on a page outside them is withheld
+  (`rowsInScope`; a row citing no page is kept; telemetry `pointer_rows_outside_chapter` with `withheld`). (2) The prescreen
+  source provider's continuation: `coverage.native.unmaterialized_pages` lists only pages of the scope's spans, so neither the
+  adjacent-page (p-1/p+1) nor the "more original PDF text" operation offers a page outside, and `readNativePages` refuses one
+  (`invalid_native_continuation`); the first read was already bounded. Both use the ordinary read's allowed-page set
+  (`inChapter`/`scopeSpans`). With no scope resolved (none, or `resolved: "none"`) both behave as before.
 
 ### 276.4 The receipt
 
