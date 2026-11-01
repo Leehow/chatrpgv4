@@ -160,7 +160,8 @@ function assetUses(value: unknown, key: string): number {
   if (value && typeof value === 'object') return Object.values(value).reduce<number>((n, child) => n + assetUses(child, key), 0);
   return 0;
 }
-function imageDimensions(image: Buffer, format: string): [number, number] | undefined {
+/** A PNG's or baseline/progressive JPEG's pixel width and height from its header; undefined when it is neither. */
+export function imageDimensions(image: Buffer, format: string): [number, number] | undefined {
   if (format === 'png') return image.length >= 24 && image.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
     && image.toString('ascii',12,16) === 'IHDR' ? [image.readUInt32BE(16), image.readUInt32BE(20)] : undefined;
   if (image[0] !== 255 || image[1] !== 216) return;

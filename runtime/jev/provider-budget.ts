@@ -2,6 +2,7 @@
 import {TaskLease, BudgetRefusal, type BudgetSpend, type TaskClock} from './task-context.ts';
 import {ContractError} from './contracts.ts';
 import {createHash} from 'node:crypto';
+import {imageDimensions} from './question-packing.ts';
 
 export interface ProviderModel {
   provider:string; id:string; api:string; maxTokens:number; contextWindow:number;
@@ -110,6 +111,50 @@ export function withOutputRoom(model:{api?:unknown;maxTokens?:unknown;compat?:un
   if(payload.config?.abortSignal!==undefined)bounded.config.abortSignal=payload.config.abortSignal;
   return bounded;
 }
+/**
+ * §14.19.7: the input a request may use, reserved before it is sent. Text is bounded by its UTF-8 bytes (a token is at least
+ * one byte) plus 1,024. An inline PNG or JPEG is bounded from its pixel dimensions, not its compressed bytes: one token per
+ * 14 x 14 pixels (the smallest vision patch in use, before any merging or downscaling a provider applies) plus 512 for its
+ * framing, and its base64 bytes are not counted as text. Anything whose size cannot be read from the request -- an image by
+ * URL, an unreadable header, a document or audio part -- still reserves the model's whole context window. Never more than
+ * the context window. Live7 du-1101a: every page-image request reserved the 1,000,000 window, so a reader owner capped at
+ * 1,000,000 refused its second image call after ~5k had been used.
+ */
+export const IMAGE_PATCH_PIXELS = 14 * 14, IMAGE_FRAME_TOKENS = 512;
+const DATA_URI = /^data:image\/(png|jpe?g);base64,([A-Za-z0-9+/=]+)$/i;
+export function requestInputBound(model:{contextWindow:number}, payload:any):number {
+  let unbounded=false,imageTokens=0;
+  const image=(format:string,data:unknown):boolean=>{
+    if(typeof data!=='string')return false;
+    const fmt=/png/i.test(format)?'png':/jpe?g/i.test(format)?'jpg':'';
+    const size=fmt?imageDimensions(Buffer.from(data,'base64'),fmt):undefined;
+    if(!size||!size.every(n=>Number.isSafeInteger(n)&&n>0)){unbounded=true;return true;}
+    imageTokens+=Math.ceil(size[0]*size[1]/IMAGE_PATCH_PIXELS)+IMAGE_FRAME_TOKENS;return true;
+  };
+  const uri=(value:unknown):boolean=>{const match=typeof value==='string'?DATA_URI.exec(value):null;
+    if(typeof value==='string'&&value.startsWith('data:')&&!match){unbounded=true;return true;}
+    return match?image(match[1],match[2]):false;};
+  // The request as text, with every inline image's bytes taken out (they are counted by their pixels above).
+  const strip=(value:any):any=>{
+    if(Array.isArray(value))return value.map(strip);
+    if(!value||typeof value!=='object')return typeof value==='string'&&uri(value)?'':value;
+    const out:Record<string,unknown>={};
+    if(['document','input_audio','input_file','file'].includes(value.type))unbounded=true;
+    for(const [key,child] of Object.entries(value)){
+      const inline=(key==='inlineData'||key==='inline_data')&&child&&typeof child==='object'?child as any:undefined;
+      if(inline&&image(String(inline.mimeType??inline.mime_type??''),inline.data)){out[key]={...inline,data:''};continue;}
+      if(key==='source'&&child&&typeof child==='object'&&(child as any).type==='base64'&&image(String((child as any).media_type??''),(child as any).data)){out[key]={...child,data:''};continue;}
+      if(key==='data'&&['image','input_image'].includes(value.type)&&image(String(value.mimeType??value.mime_type??value.format??''),child)){out[key]='';continue;}
+      if(key==='image'&&child&&typeof child==='object'){unbounded=true;out[key]=child;continue;}
+      if(key==='image_url'&&typeof child==='string'&&!child.startsWith('data:')){unbounded=true;out[key]=child;continue;}
+      if(key==='url'&&value.type!==undefined&&typeof child==='string'&&!child.startsWith('data:')&&/image/.test(String(value.type))){unbounded=true;out[key]=child;continue;}
+      out[key]=strip(child);
+    }
+    return out;
+  };
+  const text=Buffer.byteLength(JSON.stringify(strip(payload)),'utf8')+1024;
+  return unbounded?model.contextWindow:Math.min(model.contextWindow,text+imageTokens);
+}
 export function boundProviderRequest(model:ProviderModel, payload:any, outputLimit=8192):{payload:any;bound:ProviderBound} {
   if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new ContractError('provider_payload_unavailable');
   const path=outputFieldPath(model.api,payload);
@@ -117,11 +162,7 @@ export function boundProviderRequest(model:ProviderModel, payload:any, outputLim
   const existing=path.reduce((value,key)=>value?.[key],payload);
   const capped=supportsOutputLimit(model);
   const outputTokens=capped?Math.min(model.maxTokens,outputLimit,typeof existing==='number'?existing:Infinity):model.maxTokens;
-  const body=JSON.stringify(payload);
-  // Compressed image bytes do not bound vision token use. Reserve the declared context ceiling.
-  const multimodal=(value:any):boolean=>!!value&&typeof value==='object'&&(Array.isArray(value)?value.some(multimodal):
-    ['image','input_image','image_url','document','input_audio'].includes(value.type)||Object.hasOwn(value,'image')||Object.hasOwn(value,'inlineData')||Object.hasOwn(value,'inline_data')||Object.values(value).some(multimodal));
-  const inputTokens=multimodal(payload)?model.contextWindow:Buffer.byteLength(body,'utf8')+1024;
+  const inputTokens=requestInputBound(model,payload);
   const bounded=structuredClone(payload);let target=bounded;
   for(const key of path.slice(0,-1))target=target[key]??=( {} );
   if(capped)target[path.at(-1)!]=outputTokens;else delete target[path.at(-1)!];
@@ -163,15 +204,12 @@ export function createTaskProviderBudget(lease:TaskLease, options:{record?:(even
  * A separately declared finite owner for work that has no foreground task. Never a child fallback. `clock` (SL-87, tests
  * only): the deadline is measured and enforced on it; absent, the host's own clock, as before.
  */
-export const INDEPENDENT_INPUT_TOKENS = 2_000_000;
+export const INDEPENDENT_INPUT_TOKENS = 1_000_000;
 export function independentProviderBudget(owner:string, signal?:AbortSignal, timeoutMs=180_000, clock?:TaskClock):{budget:TaskProviderBudget;close():void} {
   const lease=new TaskLease({owner,goal:owner,scope:{owner,audience:'system'},capabilities:[],readSet:[],signal,...(clock?{clock}:{}),
     // A provider that rejects its output-limit field reserves its full declared maxTokens. Cover Flapcode gpt-6-luna
     // (128,000) so the lane reaches normal dispatch; actual usage still settles against the unchanged $10 ceiling.
-    // A request carrying a page image reserves the model's whole context window (1,000,000 on the reader models), so a
-    // 1,000,000 ceiling held that reservation only while nothing had been used: live7 du-1101a, every source-reference
-    // guidance reader whose second image call came after ~5k used was refused `budget_input_tokens` (provider_refused).
-    // Room for one full-window reservation beside up to one window of actual use; spend stays bound by the $10 ceiling.
+    // A page image reserves its pixel bound, not the whole context window (requestInputBound, §14.19.7).
     budget:{deadlineAt:(clock?clock.now():Date.now())+timeoutMs,remainingInputTokens:INDEPENDENT_INPUT_TOKENS,remainingOutputTokens:131_072,remainingCostUsd:10,remainingActions:16}});
   return {budget:createTaskProviderBudget(lease),close:()=>lease.close()};
 }

@@ -2275,17 +2275,26 @@ guidance") on every call. Seven setup turns ended with no campaign. Three rules 
    opening, which its own player then declined. A campaign's own workspace still carries its own choice over.
 3. **Why the preparation failed.** Every `provider_refused` in both arms (9 reader runs) was `task_budget_exhausted /
    budget_input_tokens` with `requested: 1000000` against a `1000000` ceiling, after about 5k tokens had been used. A
-   request carrying a page image reserves the model's whole context window, and an independent reader budget held that
-   only while nothing had been used. The independent owner's input ceiling is now `INDEPENDENT_INPUT_TOKENS = 2_000_000`:
-   one full-window reservation beside up to one window of actual use, with spend still bound by the $10 ceiling. It was
-   not a network failure, and no Jev family was involved.
+   request carrying a page image reserved the model's whole context window, and the independent reader owner (1,000,000)
+   could hold that only while nothing had been used. It was not a network failure, and no Jev family was involved.
+   - **The image is bounded by its size** (`requestInputBound`, `runtime/jev/provider-budget.ts`). Text is bounded by its
+     UTF-8 bytes plus 1,024, with the inline images' base64 bytes taken out. Each inline PNG or JPEG adds one token per
+     14 x 14 pixels of its header dimensions plus 512 for its framing. 14 x 14 is the smallest vision patch in use, counted
+     before any merging or downscaling a provider applies; no model is tuned for.
+   - **No other provider formula exists in the code.** Jev's own image batches keep their configured reservation.
+   - **Unreadable size still reserves the whole window.** This covers an image by URL, an unreadable header, a
+     document or audio part, or a raw image object. A reservation is never more than the window.
+   - **The independent owner's ceiling stays 1,000,000.** A 1700 x 2200 page reserves about 20k tokens, so the reader's
+     second image call fits beside what the first used.
 
 Tests:
 - `tests/extension/setup-opening-choice.test.mjs` ("live7 du-1101a"): question, failed preparation, the campaign waits,
   retry, the campaign is created on the chosen opening.
 - `tests/extension/page-open.test.mjs` ("live7 du-1101a"): a second setup naming no opening is asked, not bound to the
   first one's choice.
-- `tests/extension/jev-provider-budget.test.mjs` ("live7 du-1101a"): a second full-window image request after use.
+- `tests/extension/jev-provider-budget.test.mjs`: a second page image after use, at the 1,000,000 cap; a large image near
+  the cap admitted, one past it refused `task_budget_exhausted`; an unreadable image or one by URL still reserves the
+  window; text unchanged.
 
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 

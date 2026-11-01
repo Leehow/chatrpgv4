@@ -226,15 +226,39 @@ test('child crash without usage retains granted reservation; budgeted override c
  assert.equal(denied.ok,false);assert.match(denied.error,/private provider handshake/);
 });
 
-test('live7 du-1101a: an independent owner holds a second full-window image request after the first one used tokens',async()=>{
- const wide={...model,contextWindow:1_000_000,maxTokens:8192};
- const image={model:'bounded',input:[{role:'user',content:[{type:'input_image',image_url:'data:image/png;base64,AAAA'}]}],max_output_tokens:100};
+/** A PNG whose header says `width` x `height` (the bound reads the header; no pixels are needed). */
+const pngHeader=(width,height)=>{const head=Buffer.alloc(33);Buffer.from([137,80,78,71,13,10,26,10]).copy(head,0);head.writeUInt32BE(13,8);
+ head.write('IHDR',12,'ascii');head.writeUInt32BE(width,16);head.writeUInt32BE(height,20);head[24]=8;head[25]=6;return head.toString('base64');};
+const imageRequest=(width,height)=>({model:'bounded',input:[{role:'user',content:[{type:'input_text',text:'Read this page.'},
+ {type:'input_image',image_url:`data:image/png;base64,${pngHeader(width,height)}`}]}],max_output_tokens:100});
+
+test('live7 du-1101a: an independent owner holds a second image request after the first one used tokens',async()=>{
+ const wide={...model,contextWindow:1_000_000,maxTokens:8192},page=imageRequest(1700,2200);
+ const bound=boundProviderRequest(wide,page).bound.inputTokens;
+ assert.ok(bound>=Math.ceil(1700*2200/196)&&bound<40_000,`a page image reserves its pixel bound, not the window: ${bound}`);
  const owner=independentProviderBudget('standalone-reader');
  try{
-  const first=await owner.budget.reserve(boundProviderRequest(wide,image).bound);
+  const first=await owner.budget.reserve(boundProviderRequest(wide,page).bound);
   first.settle({input:5240,output:50,cacheRead:0,cacheWrite:0,cost:{total:0.01}});
-  const second=await owner.budget.reserve(boundProviderRequest(wide,image).bound);
+  const second=await owner.budget.reserve(boundProviderRequest(wide,page).bound);
   second.settle({input:5300,output:50,cacheRead:0,cacheWrite:0,cost:{total:0.01}});
  }finally{owner.close();}
 });
 
+test('a large image near the cap is admitted; one past it is refused as before; an unreadable image still reserves the window',async()=>{
+ const wide={...model,contextWindow:2_000_000,maxTokens:8192};
+ const near=boundProviderRequest(wide,imageRequest(14_000,13_800)).bound;
+ assert.ok(near.inputTokens>950_000&&near.inputTokens<1_000_000,`near the 1,000,000 cap: ${near.inputTokens}`);
+ const owner=independentProviderBudget('standalone-reader');
+ try{(await owner.budget.reserve(near)).settle({input:900_000,output:50,cacheRead:0,cacheWrite:0,cost:{total:0.5}});}finally{owner.close();}
+ const past=boundProviderRequest(wide,imageRequest(15_000,15_000)).bound;
+ assert.ok(past.inputTokens>1_000_000);
+ const other=independentProviderBudget('standalone-reader');
+ try{await assert.rejects(other.budget.reserve(past),/task_budget_exhausted/);}finally{other.close();}
+ const unread={model:'bounded',input:[{role:'user',content:[{type:'input_image',image_url:'data:image/png;base64,AAAA'}]}],max_output_tokens:100};
+ assert.equal(boundProviderRequest(wide,unread).bound.inputTokens,2_000_000,'a header that cannot be read keeps the old window reservation');
+ const byUrl={model:'bounded',input:[{role:'user',content:[{type:'input_image',image_url:'https://example.invalid/page.png'}]}],max_output_tokens:100};
+ assert.equal(boundProviderRequest(wide,byUrl).bound.inputTokens,2_000_000,'an image by URL too');
+ const text={model:'bounded',input:[{role:'user',content:[{type:'input_text',text:'hello'}]}],max_output_tokens:100};
+ assert.equal(boundProviderRequest(wide,text).bound.inputTokens,Buffer.byteLength(JSON.stringify(text))+1024,'text is unchanged');
+});
