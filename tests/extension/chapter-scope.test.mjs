@@ -500,8 +500,9 @@ test('§276.5: the reading service asks with the retry, and notes the retries an
 }));
 
 
-test('§276.2: an opening whose pages all stand in resident chapters is no evidence: the book is read unscoped until a place locates the party',async()=>lean(async()=>{
- // live7 du: the campaign's opening is a reading anchor on the title page and the keeper's background (pages [2,3]), both resident.
+test('§276.2: an opening whose pages all stand in resident chapters starts play in the first non-resident chapter after them, and is kept',async()=>lean(async()=>{
+ // live7 du: the campaign's opening is a reading anchor on the title page and the keeper's background (pages [2,3]), both
+ // resident; play starts in the next chapter that is not (here Intro, from page 4).
  const anchor={pages:[2,3],properties:{is_entrance:true,source_reference_anchor:true,opening_pages_text:true}};
  const bookmarks=[{name:'Title',page:2},{name:'Background',page:3},{name:'Intro',page:4},{name:'Diner',page:6}];
  const oldFetch=globalThis.fetch;
@@ -511,20 +512,62 @@ test('§276.2: an opening whose pages all stand in resident chapters is no evide
   const {reading,state}=await service(root,{scene:'dust-entry',notes,bookmarks,campaignOpening:'dust-entry',env:{...process.env,TYPESAFE_API_KEY:'deterministic'},
    graph:{'dust-entry':anchor,'Diner counter':[6,9,10]}});
   let scope=await reading.chapterScope('blood-road','c1');
-  assert.deepEqual([scope.name,scope.first,scope.last,scope.resolved,scope.resident],['whole book',1,12,'none',undefined],'not the background: unscoped');
-  const pages=await reading.bookPages('blood-road',{campaign:'c1',pages:[3,5,8]});
-  assert.deepEqual(pages.source_answer.excerpts.map(span=>span.page),[3,5,8],'no chapter restriction');
-  const {readdir}=await import('node:fs/promises');
-  assert.equal(await readdir(join(root,'.coc','chapter-scope')).then(rows=>rows.filter(name=>!name.startsWith('resident-')).length,()=>0),0,'never kept');
-  state.scene='Diner counter';
-  assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Diner','scene'],'a place with pages locates the party');
+  assert.deepEqual([scope.name,scope.first,scope.last,scope.resolved,scope.resident?.map(own=>own.name)],['Intro',4,5,'opening',['Title','Background']],
+   'not the background: the chapter after it');
+  assert.deepEqual(notes.filter(row=>row.event==='chapter_scope').map(row=>[row.chapter,row.resolved,row.opening_rule]),[['Intro','opening','after_resident']]);
+  const {createHash}=await import('node:crypto');
+  const kept=JSON.parse(await (await import('node:fs/promises')).readFile(join(root,'.coc','chapter-scope',`${createHash('sha256').update('c1').digest('hex').slice(0,32)}.json`),'utf8'));
+  assert.equal(kept.modules['blood-road'].source,'opening','kept as the opening');
   state.scene='a back room the table made';
-  assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Diner','kept'],'and it is kept');
+  assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Intro','kept'],'a place with no pages keeps it');
+  state.scene='Diner counter';
+  assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Diner','scene'],'a place whose pages hold a majority elsewhere overrides it');
+  state.scene='dust-entry';
+  assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Diner','kept'],'back in the anchor, the party keeps its chapter');
   reading.dispose();
-  // One page outside every resident chapter: the opening is evidence and locates.
+  // One page outside every resident chapter: the opening's pages are evidence and locate by the majority rule.
   const split=await service(playtestScratch('chapter-scope','opening-resident-split-'),{scene:'dust-entry',bookmarks,campaignOpening:'dust-entry',
    env:{...process.env,TYPESAFE_API_KEY:'deterministic'},graph:{'dust-entry':{...anchor,pages:[3,4]}}});
   assert.deepEqual([(scope=await split.reading.chapterScope('blood-road','c1')).name,scope.resolved],['Background','opening']);
   split.reading.dispose();
  }finally{globalThis.fetch=oldFetch;}
+ // No non-resident chapter after the anchor: nothing locates, the book is read unscoped and nothing is kept.
+ globalThis.fetch=fakeJev([],{chapter:heading=>heading==='Diner'?0.1:0.9});
+ try{
+  const root=playtestScratch('chapter-scope','opening-resident-none-');
+  const {reading}=await service(root,{scene:'dust-entry',bookmarks:[{name:'Title',page:2},{name:'Background',page:3},{name:'Stats',page:4}],
+   campaignOpening:'dust-entry',env:{...process.env,TYPESAFE_API_KEY:'deterministic'},graph:{'dust-entry':anchor}});
+  const scope=await reading.chapterScope('blood-road','c1');
+  assert.deepEqual([scope.name,scope.first,scope.last,scope.resolved,scope.resident],['whole book',1,12,'none',undefined]);
+  const {readdir}=await import('node:fs/promises');
+  assert.equal(await readdir(join(root,'.coc','chapter-scope')).then(rows=>rows.filter(name=>!name.startsWith('resident-')).length,()=>0),0,'never kept');
+  reading.dispose();
+ }finally{globalThis.fetch=oldFetch;}
+ const chapters=[{name:'Title',first:2,last:2},{name:'Background',first:3,last:3},{name:'Stats',first:4,last:5},{name:'Diner',first:6,last:12}];
+ assert.deepEqual(api.openingChapter(chapters,[2,3],chapters.slice(0,3)),{chapter:chapters[3],rule:'after_resident'},'resident chapters after the anchor are passed over');
+ assert.equal(api.openingChapter(chapters,[],chapters.slice(0,2)),undefined,'no pages locate nothing');
+}));
+
+test('§276.2: a scene that is the opening\'s reading anchor is judged by the opening rule, before the pointer index',async()=>lean(async()=>{
+ // audit integ-1101 bm: the opening scene is an anchor on [4,6,7]; with it skipped as a scene, the pointer index for the name it
+ // is shown by (most of its pages in the character list) located the party there before the opening could decide.
+ const anchor=pages=>({pages,properties:{is_entrance:true,source_reference_anchor:true}});
+ const bookmarks=[{name:'Background',page:2},{name:'Briefing',page:4},{name:'Flight',page:6},{name:'Characters',page:10}];
+ const root=playtestScratch('chapter-scope','anchor-opening-'),notes=[];
+ const {reading,state}=await service(root,{scene:'briefing-scene',notes,bookmarks,campaignOpening:'briefing-scene',graph:{'briefing-scene':anchor([4,6,7])}});
+ state.shown='Briefing room';
+ await mkdir(join(root,'source-skeletons'),{recursive:true});
+ await writeFile(join(root,'source-skeletons',`${SHA}.json`),JSON.stringify({complete:true,entities:[
+  {name:'Briefing room',aliases:[],kinds:['location'],blocks:[],pages:[2,10,11,12]},{name:'Launch pad',aliases:[],kinds:['location'],blocks:[],pages:[10,11]}]}));
+ let scope=await reading.chapterScope('blood-road','c1');
+ assert.deepEqual([scope.name,scope.first,scope.last,scope.resolved],['Flight',6,9,'opening'],'two of the anchor\'s three pages, not the pointer index');
+ assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Flight','kept']);
+ state.scene='launch-pad';state.shown='Launch pad';
+ assert.deepEqual([(scope=await reading.chapterScope('blood-road','c1')).name,scope.resolved],['Characters','pointer'],'a later place: the pointer index as before');
+ reading.dispose();
+ // dg: the opening camp is an anchor on [8,9]; the pointer index would agree, but the anchor decides as the opening.
+ const camp=await service(playtestScratch('chapter-scope','anchor-camp-'),{scene:'camp',campaignOpening:'camp',
+  bookmarks:[{name:'Intro',page:3},{name:'Scenes',page:7}],graph:{'camp':anchor([8,9])}});
+ assert.deepEqual([(scope=await camp.reading.chapterScope('blood-road','c1')).name,scope.first,scope.last,scope.resolved],['Scenes',7,12,'opening']);
+ camp.reading.dispose();
 }));

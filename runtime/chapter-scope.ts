@@ -92,8 +92,33 @@ export function placeChapter(chapters: Chapter[], pages: number[]): Chapter | un
  */
 export function placesParty(entity: Row | undefined, as: 'scene' | 'opening' = 'scene'): boolean {
 	if (!entity || (entity.kind !== 'scene' && entity.kind !== 'location')) return false;
+	return as === 'opening' || !openingAnchor(entity);
+}
+
+/** §276.2: whether a graph entity is an opening's reading anchor (a `scene` marked `is_entrance` + `source_reference_anchor`). */
+export function openingAnchor(entity: Row | undefined): boolean {
+	if (!entity || entity.kind !== 'scene') return false;
 	const marks = entity.properties && typeof entity.properties === 'object' ? entity.properties : {};
-	return as === 'opening' || !(marks.is_entrance === true && marks.source_reference_anchor === true);
+	return marks.is_entrance === true && marks.source_reference_anchor === true;
+}
+
+/**
+ * §276.2: the chapter an opening's pages start play in, and by which rule. With a page outside every resident chapter the
+ * pages are evidence: the chapter most of them stand in (`placeChapter`), else the chapter of the first page (`pages`). With
+ * every page in resident chapters (du: the anchor on the title page and the keeper's background) the pages say only where the
+ * opening is read, not where it is played: play starts in the first non-resident chapter after the last of them
+ * (`after_resident`); with none after them, nothing locates. No pages locate nothing. Resident chapters are not excluded
+ * from the count: once the pages are evidence they count wherever they stand.
+ */
+export function openingChapter(chapters: Chapter[], pages: number[], residents: Chapter[]): { chapter: Chapter; rule: 'pages' | 'after_resident' } | undefined {
+	if (!pages.length) return undefined;
+	const resident = (chapter: Chapter) => residents.some(own => own.first === chapter.first && own.last === chapter.last);
+	if (pages.some(page => !residents.some(own => inSpan(own, page)))) {
+		const chapter = placeChapter(chapters, pages) ?? chapterHolding(chapters, Math.min(...pages));
+		return chapter && { chapter, rule: 'pages' };
+	}
+	const last = Math.max(...pages), chapter = chapters.find(own => own.first > last && !resident(own));
+	return chapter && { chapter, rule: 'after_resident' };
 }
 
 export const chapterView = (scope: ChapterScope): Row => ({ name: scope.name, first: scope.first, last: scope.last, source: scope.source,
