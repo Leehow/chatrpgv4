@@ -20292,7 +20292,7 @@ was seen. Before this, every family whose policy lacked `retryNetwork` (all but 
   | Session preparation adapter (`context-runtime`), its prescreen fallback and the Keeper's support lookup (prescreen / support families) | `defaultRetryPolicy` | 1-12 s |
   | `held-act-outcome` (multi-Keeper adapter), `owned-document-binding`, `person-name-resolution`, `band-recovery`, `untold-name-spans`, `cast-public-figures`, `opening-presence` | `JEV_TURN_RETRY` | 2.5-4 s |
   | `clue-route` | `retryNetwork` added (`CLUE_ROUTE_RETRY`) | 8 s |
-  | `equipment-writing-surfaces` | `retryNetwork` added (`WRITING_SURFACES_RETRY`) | 30 s; a failure pauses the campaign 10 min |
+  | `equipment-writing-surfaces` | `retryNetwork` added (`WRITING_SURFACES_RETRY`) | 30 s; failures back off by count (§277.2) |
   | `setup-input-route`, `setup-card-fields` | `retryNetwork` added; `setup-interest-fit` now in the list | 8 s |
   | The source reader families | `retryNetwork` added; `source-visual-funnel` now in the list | 20-60 s |
 
@@ -54164,7 +54164,15 @@ and the earlier turns had passed without it. §129.7 prepared only rows that alr
 2. **Kept once.** `mods.equipment.surfaces` lists the unregistered rows no verdict covers; `mods.equipment.surfaces.submit
    {version, verdicts:[{id, surface}]}` keeps answers for listed rows only, in `save/equipment-preparation.json`
    (`surfaces`), keyed by investigator and exact row, so a row is asked once. Jev unconfigured or failed submits nothing:
-   the row is not registered, and the campaign is not asked again for ten minutes.
+   the row is not registered.
+   - **Not configured.** The campaign is not asked again for ten minutes: the key does not appear mid-session.
+   - **Failed.** The question is paused by consecutive failures, per campaign:
+     - one or two failures in a row pause nothing, so the next committed turn asks again;
+     - the third pauses one minute, and each further failure doubles the pause, at most ten minutes;
+     - an answered question resets the count.
+   - **Why.** The pause exists only so an outage does not cost every committed turn a call (d3cd95801). Audit 1101 found
+     that a single failed connection paused a campaign's surface verdicts for ten minutes. At the ten-minute cap a long
+     outage costs at most six asks an hour. Telemetry `fallback` carries `failures` and `pause_ms`.
 3. **Registered with empty pages.** A row answered `paper`, `notebook` or `book` joins §129.7's preparation with that
    presentation in its binding and creator input. Publication adopts the exact row as before; when the instance has no
    document yet it is initialized `{presentation, text: ""}` with `earlier_pages: "unrecorded"`. Its earlier pages are

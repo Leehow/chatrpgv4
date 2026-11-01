@@ -1,7 +1,7 @@
 /** Contract §277: the host asks Jev once per carried row and keeps what it answered; a failed question registers nothing. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createWritingSurfaceJudge} from '../../extensions/mods/writing-surfaces.ts';
+import {createWritingSurfaceJudge,writingSurfacesBackoff} from '../../extensions/mods/writing-surfaces.ts';
 import {writingSurfaceBatch} from '../../runtime/jev/writing-surfaces.ts';
 
 const rows=[{id:'a',name:'Notebook and stub pencil',row:'Notebook and stub pencil'},{id:'b',name:'Flashlight',row:{name:'Flashlight',quantity:1}},
@@ -34,8 +34,7 @@ test('no rows asks nothing; a failed or unconfigured question submits nothing an
   assert.equal(await judge('c1',down.call),0);
   assert.equal(down.calls.some(value=>value.method==='mods.equipment.surfaces.submit'),false);
   assert.equal(records.at(-1).event,'fallback');
-  assert.equal(await judge('c1',down.call),0);
-  assert.equal(down.calls.filter(value=>value.method==='mods.equipment.surfaces').length,1,'paused after a failure');
+  assert.equal(records.at(-1).failures,1);assert.equal(records.at(-1).pause_ms,0,'one failure pauses nothing');
   const unset=kernel(),none=createWritingSurfaceJudge({record:()=>{},decision:()=>undefined});
   assert.equal(await none('c1',unset.call),0);assert.equal(unset.calls.length,1);
 });
@@ -45,3 +44,20 @@ test('the question carries the sheet rows as data',()=>{
   assert.deepEqual(batch.state.items.e2,{name:'Flashlight',row:{name:'Flashlight',quantity:1}});
   assert.equal(batch.family,'equipment-writing-surfaces');
 });
+
+test('audit 1101: two failures in a row pause nothing; from the third the pause grows to ten minutes; an answer resets it',async()=>{
+  let clock=1_000_000,fail=true;const records=[],k=kernel();
+  const failing={async decide(batch){return{batchId:batch.id,status:'failed',answers:{},failure:{code:'service_error'}};}};
+  const answering=port([{choice:'notebook',confidence:0.9},{choice:'none',confidence:0.9},{choice:'none',confidence:0.9}]);
+  const judge=createWritingSurfaceJudge({record:row=>records.push(row),now:()=>clock,decision:()=>fail?failing:answering});
+  const listed=()=>k.calls.filter(value=>value.method==='mods.equipment.surfaces').length;
+  await judge('c1',k.call);await judge('c1',k.call);assert.equal(listed(),2,'asked on each of the first two turns');
+  await judge('c1',k.call);assert.equal(records.at(-1).pause_ms,60_000,'the third pauses one minute');
+  await judge('c1',k.call);assert.equal(listed(),3,'paused');
+  clock+=60_001;await judge('c1',k.call);assert.equal(records.at(-1).pause_ms,120_000,'the fourth doubles it');
+  assert.deepEqual([1,2,3,4,5,6,7,20].map(writingSurfacesBackoff),[0,0,60_000,120_000,240_000,480_000,600_000,600_000],'bounded at ten minutes');
+  clock+=120_001;fail=false;assert.equal(await judge('c1',k.call),3,'answered after the pause');
+  fail=true;await judge('c1',k.call);assert.equal(records.at(-1).failures,1,'an answer resets the count');assert.equal(records.at(-1).pause_ms,0);
+  await judge('c2',k.call);assert.equal(records.at(-1).failures,1,'counted per campaign');
+});
+
