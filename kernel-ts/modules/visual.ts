@@ -1,5 +1,6 @@
 /** Pure source-draft validation shared by publication and the offline host check. */
 import { RpcError } from '../errors.js';
+import { ownOpeningChoice } from './opening-choice.js';
 import { canonicalJson, isJsonObject, orderedObject, pythonJsonDumps, sha256Text } from '../json.js';
 import { array, clone, entries, equal, integer, normalize, normalizeText, number, numeric, repr, row, sorted, string, truth, type Row } from '../read/values.js';
 import { ModuleGraph, recordOf } from '../read/module-graph.js';
@@ -1273,8 +1274,9 @@ export function assembleVisual(previous: Row | null, filled: Row, meta: Row, con
         }
         graph.source_needs=[...needs.values()];
     }
-    if (truth(row(meta.opening_choice).start_scene))
-        applyOpeningChoice(graph, meta.opening_choice.start_scene, contract);
+    // §14.19.1: only a campaign's fork replays its recorded opening; a choice stored on the shared library is another table's.
+    if (ownOpeningChoice(meta))
+        applyOpeningChoice(graph, ownOpeningChoice(meta), contract);
     return graph;
 }
 

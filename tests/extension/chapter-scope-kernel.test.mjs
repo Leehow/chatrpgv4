@@ -116,10 +116,14 @@ test('§276.2 (real kernel): an opening\'s reading anchor the party moves into d
 	const found = await table.raw('table.lookup', {campaign: table.campaign, kind: 'module', query: 'Title entry', _context_read: true});
 	const entry = found.entities.find(row => row.kind === 'scene' && row.properties?.source_reference_anchor === true);
 	assert.ok(entry, 'the anchor is a scene row carrying its structural marks');
+	// §276.2: the Keeper's one-line hint is carried only while the party stands in an opening's reading anchor.
+	assert.equal('opening_anchor_note' in (await table.raw('table.capsule', {campaign: table.campaign, _context_read: true})).where, false, 'absent at a place');
 	await table.raw('table.narrate', {campaign: table.campaign, call_id: 't0-c1', text: 'The tar smell carries up from the dock.'});
 	await table.raw('table.player_input', {campaign: table.campaign, text: 'I go back to where it all began.'});
 	await table.raw('table.apply', {campaign: table.campaign, call_id: 't1-c1', effects: [{kind: 'move', to: entry.name, travel_minutes: 5}]});
-	assert.equal((await table.raw('table.capsule', {campaign: table.campaign, _context_read: true})).where.scene, entry.name);
+	const where = (await table.raw('table.capsule', {campaign: table.campaign, _context_read: true})).where;
+	assert.equal(where.scene, entry.name);
+	assert.match(where.opening_anchor_note, /section of the book .* not a place\. Register the place/);
 	const scope = await table.reading.chapterScope(table.mid, table.campaign);
 	assert.deepEqual([scope.name, scope.resolved], ['Harbor', 'kept'], 'not Background, the anchor\'s page');
 });

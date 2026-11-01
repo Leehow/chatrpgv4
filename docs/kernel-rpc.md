@@ -2359,6 +2359,39 @@ The candidate list is unchanged: option B would have hidden openings the book ha
   reader, and there is no `guidance_failed`.
 - `tests/extension/page-open.test.mjs` ("14.19.9", on the real kernel): the refusal's reason, with nothing written.
 
+**14.19.10 A fork's opening is its campaign's; a library's stored opening is void (2026-11-01, live7 du-1101b, cs-1101b).**
+14.19.8 stopped new writes of a table's opening into the shared library, but two older paths still carried one: an
+`opening_choice` already stored on the library was never removed, `ensureCampaignModule` cloned the library's metadata,
+`opening_choice` included, into each new campaign fork, and `assembleVisual` replayed it onto the graph's entry. Live7:
+du-1101b-gksev's fork recorded `scene-source-entry-2` (written to book-1 at 03:30:01Z by du-1101a-gksevr's preparation)
+while its campaign's `opening_scene` was entry 1; two cs-1101b forks recorded entry 1 against a campaign on `tongshen`.
+
+- **Only a fork records a table's opening** (`kernel-ts/modules/opening-choice.ts`): `opening_choice` counts on metadata
+  with a `campaign_scope`, and on the library only when it is the book's own (`of: "book"`, below). Any other library
+  `opening_choice` is a table's, and every reader ignores it -- the graph's replay (`assembleVisual`), the reference
+  publication's prior choice and readiness focus, the opening read's default focus, the handle job's seeds -- and the
+  library's next `writeModule` drops it, as it drops one an unscoped `module.opening.choose` sets (§14.19.1: never
+  unscoped). The library's task source revision leaves it out, so a fork seeded with its own opening still measures the
+  library's origin (§184).
+- **The book's sole entry is not a table's choice** (§14.19.8 rule 1). A reference with one entry, published with no
+  `start_scene` asked, records that entry on the library as `opening_choice {start_scene, at, of: "book"}`; the library
+  keeps, replays and seeds it like any book fact. Only the marker distinguishes it: an unmarked library choice, even of the
+  same scene, is a setup's from older code and is void.
+- **A fork is seeded with its campaign's opening.** `ensureCampaignModule` sets the fork's `opening_choice` from the
+  campaign's `campaign.json` `opening_scene`, mapped to the book's node id (the scene id itself, else back through the
+  campaign's `node_handles` -- the world's, else the setup's -- else as an authored opening's name). A fork made before its
+  campaign exists, or whose campaign names no scene, records only the library's book opening if it has one, else none; the campaign's `opening_scene` stays the opening play
+  starts from (`campaign.create`), and a later `module.opening.choose {campaign}` records it on the fork.
+- Not repaired: a library graph whose entry an older write already narrowed to one opening keeps that entry, and a fork made
+  before this change keeps the opening it cloned until its next `module.opening.choose {campaign}`. No data is migrated.
+
+Test: `tests/extension/page-open.test.mjs` ("live7 du-1101b", on the real kernel): a stale library `opening_choice` is not
+replayed by `assembleVisual` on the library (a fork's is), a new fork records its campaign's opening (by handle), a fork
+before its campaign records none, and the library's next write drops the stored one. ("§14.19.10: a single-entry book"):
+a one-entry reference published without `start_scene` keeps its entry on the library (marked `of: "book"`, replayed,
+seeded into a fork with no campaign opening, kept across writes), while an unmarked choice of the same scene is not cloned
+and is dropped on the next write.
+
 ## 15. 世界线：if 线、时间回溯、跨线知晓与汇流（切片 6，票 #23）
 
 一条世界线就是战役 sidecar 仓库里的一条分支。玩家在一个战役里同一时刻只玩一条线；可以分叉、回溯、切换、汇流；所有线都留着（证据永不删除）。什么跨线留下、谁记得别的线、汇流时怎么合，由模组图声明、内核确定性地算；守秘人只在胶囊里看到这是第几圈、锚点在哪、留下了什么、谁记得、有哪些回声可投放。世界线操作是世界的改变，所以走 `apply`（法则二），并在那一回合提交之后由内核执行——守秘人仍然只有七个动词。旧树世界线系统的双时态断言、九种记忆状态、跨战役转移、自动合并策略都不回来。
@@ -54170,8 +54203,8 @@ from the count (f13f3f8ce) took story chapters a verdict had judged resident out
 in a book's pregenerated-investigator pages still locates the party there (live 1031 cs). When nothing else decides, the authored opening's pages decide by the same rule; when they hold no
 majority, the party starts in the chapter of the opening's first page (audit 1031: du's opening on [4,5], cs's on [4,14,17] and
 ad's on [14..18] fell through to the first chapter, the keeper's background, and the kept chapter held the party there). A scene with no book pages (one the table made) keeps the chapter last resolved for the campaign and module; the host keeps
-it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's pages decide; with no opening pages either,
-the first chapter. The chapter changes only when the party is in a book scene of another chapter.
+it in `<home>/.coc/chapter-scope/<campaign>.json`. With neither, the opening's pages decide; with no opening pages either
+(or none that are evidence, below), the whole book unscoped. The chapter changes only when the party is in a book scene of another chapter.
 
 **Only a place's pages place the party (2026-11-01).** Which graph entities' pages count is read from structure only, the
 lookup row's `kind` and `properties` (`placesParty`, `runtime/chapter-scope.ts`): a `scene` or `location`; never the module's
@@ -54182,8 +54215,30 @@ kept chapter, then the opening. A place minted from the source reference (`sourc
 entrance (`is_entrance` alone) are places. Live7 du-1101a/b: both tables opened on the first entry, the anchor on the title
 page and the keeper's background (pages 2-3); the Keeper played the Arkham cemetery inside that opening scene for eight turns
 without a move (the scene follows moves, §1.2.8: the opening locus was kept), the scene branch put the party in the background
-by its pages, and the places the table later made kept it there. Known issue: an opening anchor that itself stands in the
-keeper's background still starts the table there through the opening branch.
+by its pages, and the places the table later made kept it there.
+
+**The Keeper is told while the party stands in an opening anchor (2026-11-01).** While the capsule's scene (`where.scene`,
+the world's `active_scene`) is such an anchor, read from the same structure (`isOpeningAnchor`, `kernel-ts/read/capsule.ts`),
+`where` carries `opening_anchor_note`, one line: the scene is the section of the book where the opening is read, not a place;
+register the place where the party actually is as a scene and move the party there. It is absent in every other scene, so
+normal play carries nothing. It is a hint, not a gate: whether the party's locus becomes a scene stays the Keeper's call
+(§1.2.8 scene commitment). Live7 du-1101a/b: eight turns at the Arkham cemetery inside the anchor without a move.
+
+**Not enough evidence, do not locate (2026-11-01).** The opening's pages count as evidence only when at least one of them
+stands outside every resident chapter (§276.5). An opening whose pages all stand in resident chapters (du: the anchor on the
+title page and the keeper's background, pages 2-3) says nothing about where play is, and the opening branch locates nothing.
+This does not exclude resident chapters from counting: a place's or an opening's pages still count in whatever chapter they
+stand, once the opening is evidence at all. With no resident verdict (none asked yet, or an ask Jev could not answer) every
+page is outside every resident chapter and the opening decides as before.
+
+**No evidence: the book is read unscoped (2026-11-01).** When no scene, pointer, kept chapter or opening locates the party,
+the scope is the whole book, `{name: "whole book", first: 1, last: <page count>, resolved: "none"}`, with no resident
+chapters: no read is chapter-restricted (answer, pages, contents, held answers, Jev locate and the prescreen's source
+materials all read every page), the answer's `chapter` carries `unscoped: true`, and its note and receipts say "the book",
+not "the current chapter". It is never kept: the next read with evidence -- the party moving to a real place whose pages
+locate it -- locates and keeps that chapter. Before this, the fallback was the first chapter after the front matter (resolved
+`first`), a stand-in that, although never kept, restricted every read to that chapter -- usually the keeper's background --
+while the party played elsewhere. The unscoped read is noted once per campaign and module until a chapter is located.
 
 The opening is the campaign's own: `module.status` called with a campaign carries `campaign_opening`, the campaign's
 recorded `opening_scene` as the table names it, and the host looks that up (`table.lookup kind=module`); the module's
@@ -54193,17 +54248,19 @@ choice (§22.6). Live 1031: in 32 tables no read ever resolved `opening`; cs and
 `scene-source-entry-4` against rows named `cult-initiation-ceremony` and `investigator-briefing`, so every one started in the
 keeper's background as the first chapter.
 
-Only a chapter located from evidence is kept: the scene's or the pointer index's pages, or the opening's. The first chapter
-is a stand-in for that read alone, never written to the kept file, so the next read with a scene or an opening locates the
+Only a chapter located from evidence is kept: the scene's or the pointer index's pages, or the opening's. The unscoped
+read is for that read alone, never written to the kept file, so the next read with a scene or an opening locates the
 party (live 1031: a first-chapter fallback kept at the opening turned every later read into `kept` and held the party in the
-keeper's background for the whole table). The stand-in is noted once per campaign and module until a chapter is located.
-The kept file is versioned: `{"version": 2, "modules": {"<module_id>": {name, first, last, campaign, source}}}`, with
+keeper's background for the whole table).
+The kept file is versioned: `{"version": 3, "modules": {"<module_id>": {name, first, last, campaign, source}}}`, with
 `source` the evidence the chapter was located from: `opening`, `scene_majority` (the scene's graph pages) or
 `pointer_majority` (the pointer index's pages). On read, a file without that version, or an entry with no source or an
 unknown one, is void: it is not used as the kept chapter, and the next read relocates from evidence and overwrites it. Files
 written before 2026-11-01 (`{"<module_id>": {name, first, last, campaign}}`) are all void, since one may hold a first-chapter
-stand-in kept by the old rule. Telemetry:
-`lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `pointer`, `kept`, `opening`, `first`) and the
+stand-in kept by the old rule. Version 2 files still count, except an entry located from the `opening`, which was located
+before the evidence threshold above (live7 du: the opening anchor's keeper background kept); it is void and relocated.
+Telemetry:
+`lane: reading, event: chapter_scope` with the chapter, how it was resolved (`scene`, `pointer`, `kept`, `opening`, `none`) and the
 chapter source (`bookmarks`, `headings`, `none`).
 
 ### 276.3 Every read is cut to it

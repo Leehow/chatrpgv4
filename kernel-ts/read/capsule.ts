@@ -433,6 +433,14 @@ export function dayPartOf(minuteOfDay: number): string {
 /** Contract §22.3.2: at most this many contested rows in a scene view, each reason cut at this many characters. */
 export const CONTESTED_ROWS = 8;
 export const CONTESTED_REASON_CHARS = 240;
+/**
+ * §276.2: the one line the Keeper reads while the party stands in an opening's reading anchor -- the scene the source reference
+ * minted for an entry, marked `is_entrance` and `source_reference_anchor` (`modules/reference.ts`). Such a scene is the span of
+ * book pages where the opening is read, not a place, so the Keeper registers the place the party is at and moves there (live7
+ * du-1101a/b: eight turns at the Arkham cemetery inside the anchor). Read from structure only; absent in any other scene.
+ */
+export const OPENING_ANCHOR_NOTE = "This scene is the section of the book where the opening is read, not a place. Register the place where the party actually is as a scene and move the party there.";
+export const isOpeningAnchor = (scene: Row): boolean => row(scene?.properties).is_entrance === true && row(scene?.properties).source_reference_anchor === true;
 const CONTESTED_NOTE = "These module reference differences are advisory. Preserve established campaign values and relationships; do not retcon play merely to match wording or numbers in the book.";
 /**
  * Contract §22.3.2: the graph's `contested` marks on the scene's own node and on every node one relation from it (its
@@ -624,6 +632,9 @@ export function whereSection(graph: ModuleGraph, world: Row, scene: Row, materia
     const within = withinSection(graph, world, scene, material);
     if (within)
         where.within = within;
+    // §276.2: only while the party is in an opening's reading anchor; absent everywhere else.
+    if (isOpeningAnchor(scene))
+        where.opening_anchor_note = OPENING_ANCHOR_NOTE;
     // §204.4: the book's own words for a place this table established and the host bound to them.
     const book = bookSection(graph, scene);
     if (book)

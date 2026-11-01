@@ -10,8 +10,8 @@ type Row = Record<string, any>;
 
 export type ChapterSource = 'bookmarks' | 'headings' | 'none';
 export interface Chapter { name: string; first: number; last: number }
-/** How the current chapter was found (§276.2). */
-export type ChapterResolution = 'scene' | 'pointer' | 'kept' | 'opening' | 'first';
+/** How the current chapter was found (§276.2); `none`: no evidence locates the party, and the scope is the whole book, unscoped (never kept). */
+export type ChapterResolution = 'scene' | 'pointer' | 'kept' | 'opening' | 'none';
 /**
  * The current chapter and (§276.5) the book's resident chapters, read from any chapter: `resident` never holds the current
  * chapter itself.
@@ -19,6 +19,8 @@ export type ChapterResolution = 'scene' | 'pointer' | 'kept' | 'opening' | 'firs
 export interface ChapterScope extends Chapter { source: ChapterSource; resolved: ChapterResolution; resident?: Chapter[] }
 
 export const WHOLE_BOOK = 'whole book', FRONT_MATTER = 'front matter';
+/** Whether a scope restricts nothing: a book without chapters, or (§276.2) a read no evidence located. */
+export const unscoped = (scope: ChapterScope): boolean => scope.source === 'none' || scope.resolved === 'none';
 
 /** §182.1 read for §276.1: entries sorted by page, same-page entries collapsed to the last; fewer than two is none. */
 export function entriesChapters(value: unknown, pageCount: number): Chapter[] {
@@ -95,9 +97,10 @@ export function placesParty(entity: Row | undefined, as: 'scene' | 'opening' = '
 }
 
 export const chapterView = (scope: ChapterScope): Row => ({ name: scope.name, first: scope.first, last: scope.last, source: scope.source,
+	...(scope.resolved === 'none' ? { unscoped: true } : {}),
 	...(scope.resident?.length ? { resident: scope.resident.map(own => ({ name: own.name, first: own.first, last: own.last })) } : {}) });
 export const CHAPTER_NOTE = "These pages are the current chapter's; the Keeper's book is this chapter. " + BOOK_ABSENCE_RULE;
-const span = (scope: ChapterScope) => scope.source === 'none' ? `the book, pages ${scope.first}-${scope.last}`
+const span = (scope: ChapterScope) => unscoped(scope) ? `the book, pages ${scope.first}-${scope.last}`
 	: `the current chapter (${scope.name}, pages ${scope.first}-${scope.last})`
 		+ (scope.resident?.length ? ` and the book's reference chapters (${scope.resident.map(own => `${own.name}, pages ${own.first}-${own.last}`).join('; ')})` : '');
 

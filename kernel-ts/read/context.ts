@@ -1,5 +1,6 @@
 /** Host-only context identity and bounded extraction coverage; never persisted as game state. */
 import { briefWindow } from './brief-window.js';
+import { dropForeignOpening } from '../modules/opening-choice.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isJsonObject, jsonDigest, pythonJsonDumps, utf8Bytes } from '../json.js';
@@ -154,6 +155,8 @@ export async function sourceRevision(campaign: CampaignSnapshot, module: LoadedM
         // §184.1: `library_sync` is the fork's record of what the library adopted from it, written after the fork's own
         // publication (and after that publication's exact source advance was measured); it is no source a task reads.
         const {reading: _readerBookkeeping, updated_at: _bookkeepingClock, library_sync: _librarySync, ...taskMeta} = module.meta;
+        // §14.19.1: a table's opening stored on the library is read by no task (only a fork's, or the book's own, is).
+        dropForeignOpening(taskMeta);
         // §182.1: the bookmarks a host backfills into `source_document` steer the read-ahead's window; no task reads them.
         if (isJsonObject(taskMeta.source_document) && Object.hasOwn(taskMeta.source_document, 'outline')) {
             const {outline: _outline, ...sourceDocument} = taskMeta.source_document;
