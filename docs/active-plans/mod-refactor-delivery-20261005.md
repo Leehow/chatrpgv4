@@ -2,7 +2,7 @@
 
 ## Outcome and ownership
 
-The original §179/§183 implementation, integration, regression gate and installed-package instruction-supply checks are complete. No remaining Mod implementation defect was found in this takeover audit. The installed package is still `0eabe8f4150ac04b48d23c0d1d0f004595f896a5` / Pi 1.0.0. Natural Keeper acceptance in index mode remains unmeasured; retained local fake-provider evidence does not close it. Final-App natural notes/asker behavior has not been rerun either.
+The original §179/§183 implementation, integration, regression gate and installed-package instruction-supply checks are complete. No remaining Mod implementation defect was found in this takeover audit. The audited installed package was `0eabe8f4150ac04b48d23c0d1d0f004595f896a5` / Pi 1.0.0. Natural Keeper acceptance in index mode remains unmeasured; retained local fake-provider evidence does not close it. Final-App natural notes/asker behavior has not been rerun either. The coordinator's subsequent scope ruling below marks this independent engineering delivery complete while preserving those evidence limits.
 
 This is the independent successor to Claude **“KP需求分析与笔记内容问题”**, original session `c5f100a2-996d-43f2-a797-bce8949530cf`. It covers the original investigator-record/asker-purpose work (§179) and Mod instruction refactor (§183), including their tests and delivery evidence. It does not take over NPC first-impression, names, creature rules, literary writing, PDF reading/library publication, or packaging implementation.
 
@@ -77,8 +77,16 @@ Read-only audit program and machine-readable evidence: `/Users/haoli/Documents/C
 | --- | --- |
 | Original Mod implementation/integration and regression responsibilities | Complete; no duplicate refactor or production candidate required |
 | Installed 0eabe instruction-supply seams | Complete within the recorded deterministic/local-fake scope |
-| Natural index-mode Keeper replay | Open/unmeasured. If retained as a final delivery gate, coordinator must schedule it against the accepted installed package and original model/budget through the standard driver. Forced low budget, real topic selection and actual prose must be evidenced; fake fallback cannot close it. |
-| Final-App natural notes/asker-purpose behavior | Historical replay passed with stated limits; final-App rerun unperformed. It can be observed on an authorized natural-player queue without assigning a new full-project task to the literary owner. |
+| Natural index-mode Keeper replay | Unmeasured; coordinator explicitly declined an additional paid index table that the original user had not requested. This is an evidence limit, not an outstanding engineering-delivery blocker. |
+| Final-App natural notes/asker-purpose behavior | Historical replay passed with stated limits; final-App rerun unperformed. Reuse actual relevant evidence from the existing names/NPC/creature cases when the main queue supplies it. No extra table or literary-owner task is assigned. |
 | PDF reading lane / new package | Other original owner. No new table that can start shared reading while the coordinator holds the cost/package gate. Await unique package signal, then rebind affected evidence rather than repeat unrelated passed work. |
 
 No new paid budget was assumed. No new player sentence, model request, LAN suite, build or package was started. No source or WIP of another owner was changed. No external push or branch deletion occurred. This independent session and the original worktrees/evidence are retained.
+
+## Coordinator scope closeout
+
+Parent relayed the coordinator's explicit decision: accept the Mod engineering/static delivery audit; reuse relevant notes/question evidence from the original names/NPC/creature cases; do not open a new paid index table that the original user did not request; mark this independent engineering delivery complete; retain unmeasured natural-evidence status and update only when the main queue supplies reusable evidence.
+
+Read-only integration check: `98546c3e44b5e183451462ab770f5d4c8a78a55c` is an ancestor of observed main `b79ba4c73ca26a7854f91405b6954bb99c782407`. Thus the original delivery-audit candidate is present on the shared source. The shared source's three WIP paths are still present. This finding is not a new package or behavior-acceptance signal.
+
+Engineering status: **complete**. Retain this session and its registered workspace for evidence-only follow-up. There is no active test, paid play queue or implementation job in this owner session, and no reason to poll while awaiting reusable evidence.
