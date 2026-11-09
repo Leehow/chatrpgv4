@@ -231,7 +231,7 @@ test('a direct place submit without a route arrives as an open route, and later 
  const batches=[];
  const engine=createHybridEngine({env,decision:{decide:async batch=>{batches.push(batch);return answer(batch,.99);}}});
  const command={kind:'place',action:'move',to:'Ordinary Inn / Single room',via:'Along the street and up the inn stairs',travel_band:'adjacent',
-  additions:[{name:'Ordinary Inn',description:'An ordinary inn.'},{name:'Single room',within:'Ordinary Inn',description:'A plain single room.',features:[{name:'window',description:'A wooden window.'}]}]};
+  additions:[{name:'Ordinary Inn',within:null,description:'An ordinary inn.'},{name:'Single room',within:'Ordinary Inn',description:'A plain single room.',features:[{name:'window',description:'A wooden window.'}]}]};
  const {kind,via,...missingRoute}=command;
  const table=await openTable({legacyDeliveryFixtures:false,realKernel:true,prepareWorkspace:opened,env,runDriver:engine.runDriver,
   extraExtensions:[{name:'engine',factory:engine.extension}],responses:[

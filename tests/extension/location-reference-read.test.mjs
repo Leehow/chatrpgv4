@@ -8,24 +8,25 @@ import {locationIdentityContext} from '../../extensions/table/location-context.t
 
 const world=k=>JSON.parse(readFileSync(join(campaignDir(k.workspace),'world.json'),'utf8'));
 const inspect=(k,params)=>k.ok('mods.locations.inspect',{campaign:CAMPAIGN,...params});
-async function room(t,extra=[]){
+async function room(t,extra=[],standalone=true){
     const k=await kernel(t);await openTurn(k,'I stand by the room window.');
     await k.table('apply',{call_id:'t1-c1',effects:[{kind:'place',action:'establish',additions:[
-        {name:'Inn room',description:'An upstairs room.',features:[{name:'window',description:'A glass casement.',state:'closed',passable:false}]},...extra]}]});
+        {name:'Inn room',...(standalone?{within:null}:{}),description:'An upstairs room.',features:[{name:'window',description:'A glass casement.',state:'closed',passable:false}]},...extra]}]});
     return k;
 }
 
-test('the exact offered feature reference reads its owning place instead of reporting it unregistered',async t=>{
-    const k=await room(t),before=world(k);
+for(const standalone of [true,false])test(`the exact offered feature reference reads its owning place instead of reporting it unregistered (${standalone?'standalone':'nested'})`,async t=>{
+    const k=await room(t,[],standalone),before=world(k);
+    const place=standalone?'Inn room':`${before.active_scene} / Inn room`;
     const offered=(await inspect(k,{name:'Inn room'})).catalogue.find(candidate=>candidate.kind==='feature'&&candidate.feature==='window');
     assert(offered,'the existing catalogue must offer the window');
     const read=await inspect(k,{name:offered.name});
     assert.notEqual(read.status,'unregistered','a reference offered by this read API must be readable');
-    assert.deepEqual(read.reference,{kind:'feature',place:'Inn room',at:'window'});
-    assert.equal(read.place.name,'Inn room');
+    assert.deepEqual(read.reference,{kind:'feature',place,at:'window'});
+    assert.equal(read.place.name,place);
     assert.deepEqual(read.target_feature,{name:'window',description:'A glass casement.',state:'closed',passable:false});
     assert.deepEqual(offered.reference,read.reference);
-    assert.deepEqual(offered.read,{action:'inspect',need:'context',name:'Inn room',at:'window'});
+    assert.deepEqual(offered.read,{action:'inspect',need:'context',name:place,at:'window'});
     const {action,...pointer}=offered.read;
     assert.equal(action,'inspect');
     assert.deepEqual((await inspect(k,pointer)).reference,read.reference);
@@ -66,7 +67,7 @@ test('a qualified feature observation read matches its explicit target and does 
 });
 
 test('an ambiguous place remains ambiguous and a fabricated feature suffix creates nothing',async t=>{
-    const k=await room(t,[{name:'East wing',description:'The eastern wing.'},{name:'West wing',description:'The western wing.'},
+    const k=await room(t,[{name:'East wing',within:null,description:'The eastern wing.'},{name:'West wing',within:null,description:'The western wing.'},
         {name:'Reading room',within:'East wing',description:'An east reading room.'},{name:'Reading room',within:'West wing',description:'A west reading room.'}]);
     const before=world(k),ambiguous=await k.err('mods.locations.inspect',{campaign:CAMPAIGN,name:'Reading room'});
     assert.equal(ambiguous.code,'unknown_entity');assert.equal(ambiguous.details.reason,'ambiguous');

@@ -176,6 +176,14 @@ test("RNG number APIs retain draws and refuse lossy integers without consuming t
 test("actual JSONL subprocess serves hello and existing campaigns and drains EOF", async () => {
   const path = await workspace("subprocess with spaces");
   await populate(path);
+  // Frozen protocol expectations need their frozen catalogue, not today's shipped starters.
+  const content = await workspace("subprocess content");
+  for (const name of reference.rpc.hello.content.rulesets) await mkdir(join(content, "rulesets", name), { recursive: true });
+  for (const name of reference.rpc.hello.content.modules) {
+    const module = join(content, "starters", name);
+    await mkdir(module, { recursive: true });
+    await writeFile(join(module, "module-graph.json"), "{}");
+  }
   const requests = [
     { id: "hello", method: "kernel.hello", params: null },
     { id: "list", method: "campaign.list" },
@@ -183,7 +191,7 @@ test("actual JSONL subprocess serves hello and existing campaigns and drains EOF
     { id: "unknown", method: "table.not_real" },
     { id: "after errors", method: "kernel.hello" },
   ];
-  const run = spawnSync(process.execPath, [join(temporary, "rpc.mjs"), "--workspace", path, "--content", join(REPO, "content")], {
+  const run = spawnSync(process.execPath, [join(temporary, "rpc.mjs"), "--workspace", path, "--content", content], {
     cwd: temporary, encoding: "utf8", timeout: 10000,
     input: "\n" + requests.map(value => JSON.stringify(value)).join("\r\n"),
   });

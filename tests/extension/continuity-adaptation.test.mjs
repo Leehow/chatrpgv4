@@ -73,7 +73,7 @@ async function table(input = 'I want to understand how these events connect.', {
 test('adaptation sees existing Mod scenery and its freshness tracks real location changes',async()=>{
  const t=await table('Prepare a source-connected route without duplicating the existing guesthouse.');
  await t.call('table.apply',{call_id:'t1-c1',effects:[{kind:'place',action:'establish',additions:[
-  {name:'Existing guesthouse',description:'A table-established guesthouse.',features:[{name:'Rear window',description:'A window over the yard.',state:'Closed.'}]}]}]});
+  {name:'Existing guesthouse',within:null,description:'A table-established guesthouse.',features:[{name:'Rear window',description:'A window over the yard.',state:'Closed.'}]}]}]});
  const p=await t.call('adaptation.prepare',{name:'New harbor route',purpose:'new_destination',request:'Connect a genuinely new harbor stop to the existing investigation.',anchors:[graph.startScene().name]});
  const focus=JSON.parse(await readFile(join(p.task.cwd,'focus.json'),'utf8'));
  assert.ok(focus.existing_locations.places.some(place=>place.name==='Existing guesthouse'));
