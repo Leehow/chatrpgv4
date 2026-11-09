@@ -242,6 +242,7 @@ test('explicit setup transport retains ordinary assistant output and suppresses 
 
 test('the actual startup owner grants setup fallback only to the resolved canonical setup launcher',async()=>{
   const originalFactory=driver.runtime.processFactory, originalEnv=process.env.PI_COC_LAUNCHER;
+  const originalProfile=process.env.PI_COC_PIPICOC_PROFILE;
   const created:string[]=[];
   driver.runtime.processFactory=class {
     proc={pid:process.pid};
@@ -249,6 +250,8 @@ test('the actual startup owner grants setup fallback only to the resolved canoni
     alive(){return true;}
   } as any;
   try{
+    // This transport-only test replaces Pi; it must not read the owner's App profile or vault.
+    process.env.PI_COC_PIPICOC_PROFILE='0';
     for(const [launcher,environment,expected] of [
       [join(driver.REPO_ROOT,'bin/pi-coc-setup'),undefined,true],
       ['bin/pi-coc-setup',undefined,true],
@@ -262,6 +265,7 @@ test('the actual startup owner grants setup fallback only to the resolved canoni
       const id='fixture-private-transport-'+randomUUID();created.push(driver.run_dir(id));
       const daemon=await driver.Daemon.create(id,'fixture-private-transport',launcher);
       assert.equal(daemon.setup_transport,expected);
+      assert.equal(daemon.plugins,null);
     }
     // A wrapper launcher around `bin/pi-coc setup` says so with --setup (Cold Harvest 2026-10-24: three setup turns recorded as
     // undelivered with empty final text while the setup questions reached the player).
@@ -271,7 +275,31 @@ test('the actual startup owner grants setup fallback only to the resolved canoni
     assert.equal(driver.build_parser().parse_args(['_daemon','--run','x','--campaign','y','--setup']).setup,true);
   }finally{
     driver.runtime.processFactory=originalFactory;
+    if(originalProfile===undefined)delete process.env.PI_COC_PIPICOC_PROFILE;else process.env.PI_COC_PIPICOC_PROFILE=originalProfile;
     if(originalEnv===undefined)delete process.env.PI_COC_LAUNCHER;else process.env.PI_COC_LAUNCHER=originalEnv;
+    for(const directory of created)rmSync(directory,{recursive:true,force:true});
+  }
+});
+
+test('canonical live startup still requires the owner profile before creating a Pi process',async()=>{
+  const originalFactory=driver.runtime.processFactory;
+  const originalProfile=process.env.PI_COC_PIPICOC_PROFILE, originalDir=process.env.PI_COC_PROFILE_DIR;
+  const created:string[]=[];
+  let spawned=0;
+  driver.runtime.processFactory=class {constructor(){spawned++;assert.fail('Missing live profile must prevent process creation');}};
+  try{
+    delete process.env.PI_COC_PIPICOC_PROFILE;
+    process.env.PI_COC_PROFILE_DIR=join(driver.run_dir('fixture-missing-profile-'+randomUUID()),'absent-profile');
+    for(const launcher of ['bin/pi-coc','bin/pi-coc-setup']){
+      const id='fixture-live-profile-required-'+randomUUID();created.push(driver.run_dir(id));
+      await assert.rejects(driver.Daemon.create(id,'fixture-live-profile-required',join(driver.REPO_ROOT,launcher)),
+        /PipiCOC profile not found.*live tables load the owner's plugins/);
+    }
+    assert.equal(spawned,0);
+  }finally{
+    driver.runtime.processFactory=originalFactory;
+    if(originalProfile===undefined)delete process.env.PI_COC_PIPICOC_PROFILE;else process.env.PI_COC_PIPICOC_PROFILE=originalProfile;
+    if(originalDir===undefined)delete process.env.PI_COC_PROFILE_DIR;else process.env.PI_COC_PROFILE_DIR=originalDir;
     for(const directory of created)rmSync(directory,{recursive:true,force:true});
   }
 });
