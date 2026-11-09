@@ -1,5 +1,5 @@
 /** Observation records share location staging, NPC authority and the one game clock. */
-import {randomUUID} from 'node:crypto';
+import {entityId} from '../ids.js';
 import type {ApplyContext} from '../apply/index.js';
 import {RpcError} from '../errors.js';
 import {clockSection,npcNode,npcsPresent} from '../read/capsule.js';
@@ -45,7 +45,7 @@ export function stagePerceptualRelations(context:ApplyContext,state:Row,relation
             if(old.description!==draft.description)adjusted.push({field:`relations[${index}]`,reason:'existing_relation_kept'});
             return old;
         }
-        const relation={id:`relation-location-${randomUUID()}`,from,to,sense:draft.sense,description:draft.description,turn:context.turn.turn};
+        const relation={id:entityId(context.kernel,'relation-location',[context.turn.turn,context.callId,from,to,draft.sense],id=>stored.some((row:Row)=>row.id===id)),from,to,sense:draft.sense,description:draft.description,turn:context.turn.turn};
         stored.push(relation);return relation;
     });
 }
@@ -88,7 +88,7 @@ export function stageLocationObservation(context:ApplyContext,state:Row,effect:R
     for(const [name,draft] of drafts){
         const existing=locationSituations(world).find(situation=>spatialPointKey(row(situation.to))===spatialPointKey(to)&&normalize(situation.name)===name);
         const participants=draft.participants===undefined?clone(array(existing?.participants)):array(draft.participants).map(name=>person(name,'situations.participants')).filter(Boolean);
-        const next={id:existing?.id??`situation-location-${randomUUID()}`,name:existing?.name??draft.name,to:clone(to),summary:draft.summary,status:draft.status,participants,
+        const next={id:existing?.id??entityId(context.kernel,'situation-location',[turn.turn,context.callId,name,to],id=>locationSituations(world).some((row:Row)=>row.id===id)),name:existing?.name??draft.name,to:clone(to),summary:draft.summary,status:draft.status,participants,
             assessed_clock:clone(observed_clock),turn:turn.turn,receipt:receipt.id};
         if(existing)Object.assign(existing,next);else situations.push(next);
         updates.push(clone(next));
